@@ -1,0 +1,11 @@
+[package]
+name = "wadl"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "A WADL parser for Rust"
+repository = "https://github.com/jelmer/wadl-rs"
+authors = ["Jelmer Vernooĳ <jelmer@jelmer.uk>"]
+
+[dependencies]
+xml = "0.8.10"
