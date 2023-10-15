@@ -8,4 +8,6 @@ repository = "https://github.com/jelmer/wadl-rs"
 authors = ["Jelmer Vernooĳ <jelmer@jelmer.uk>"]
 
 [dependencies]
+lazy_static = "1.4.0"
 xml = "0.8.10"
+xmltree = "0.10.3"
