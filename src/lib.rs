@@ -1,7 +1,17 @@
+use std::collections::HashMap;
 use std::io::Read;
 use xmltree::Element;
 
 pub const WADL_NS: &str = "http://wadl.dev.java.net/2009/02";
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ParamStyle {
+    Plain,
+    Matrix,
+    Query,
+    Header,
+    Template,
+}
 
 #[derive(Debug)]
 pub struct Application {
@@ -28,6 +38,7 @@ pub struct Method {
     pub name: String,
     pub docs: Vec<Doc>,
     pub request: Option<Request>,
+    pub responses: Vec<Response>,
 }
 
 #[derive(Debug)]
@@ -38,7 +49,17 @@ pub struct Doc {
 }
 
 #[derive(Debug)]
-pub struct Param {}
+pub struct Param {
+    pub style: ParamStyle,
+    pub options: Option<HashMap<String, String>>,
+    pub id: Option<String>,
+    pub name: String,
+    pub r#type: Option<String>,
+    pub path: Option<String>,
+    pub required: bool,
+    pub repeating: bool,
+    pub fixed: Option<String>,
+}
 
 #[derive(Debug)]
 pub struct Representation {
@@ -61,6 +82,7 @@ pub struct Request {
 pub struct Response {
     pub docs: Vec<Doc>,
     pub params: Vec<Param>,
+    pub status: i32,
     pub representations: Vec<Representation>,
 }
 
@@ -70,13 +92,55 @@ pub enum Error {
     Xml(xmltree::ParseError),
 }
 
-pub fn parse_params(resource_element: &Element) -> Vec<Param> {
+pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -> Vec<Param> {
     let mut params = Vec::new();
 
     for param_node in &resource_element.children {
         if let Some(element) = param_node.as_element() {
             if element.name == "param" {
-                params.push(Param {});
+                let style = element
+                    .attributes
+                    .get("style")
+                    .cloned()
+                    .map(|s| match s.as_str() {
+                        "plain" => ParamStyle::Plain,
+                        "matrix" => ParamStyle::Matrix,
+                        "query" => ParamStyle::Query,
+                        "header" => ParamStyle::Header,
+                        "template" => ParamStyle::Template,
+                        _ => panic!("Unknown param style: {}", s),
+                    })
+                    .unwrap();
+                let options = None; // TODO
+                let id = element.attributes.get("id").cloned();
+                let name = element.attributes.get("name").cloned().unwrap();
+                let r#type = element.attributes.get("type").cloned();
+                let path = element.attributes.get("path").cloned();
+                let required = element
+                    .attributes
+                    .get("required")
+                    .cloned()
+                    .map(|s| s == "true")
+                    .unwrap_or(false);
+                let repeating = element
+                    .attributes
+                    .get("repeating")
+                    .cloned()
+                    .map(|s| s == "true")
+                    .unwrap_or(false);
+                let fixed = element.attributes.get("fixed").cloned();
+                assert!(allowed_styles.contains(&style));
+                params.push(Param {
+                    options,
+                    style,
+                    id,
+                    name,
+                    r#type,
+                    path,
+                    required,
+                    repeating,
+                    fixed,
+                });
             }
         }
     }
@@ -100,7 +164,15 @@ pub fn parse_resource(element: &Element) -> Result<Resource, Error> {
 
     let subresources = parse_resources(element)?;
 
-    let params = parse_params(element);
+    let params = parse_params(
+        element,
+        &[
+            ParamStyle::Matrix,
+            ParamStyle::Query,
+            ParamStyle::Header,
+            ParamStyle::Template,
+        ],
+    );
 
     Ok(Resource {
         id,
@@ -176,7 +248,10 @@ pub fn parse_resource_type(resource_type_element: &Element) -> Result<ResourceTy
 
     let subresources = parse_resources(resource_type_element)?;
 
-    let params = parse_params(resource_type_element);
+    let params = parse_params(
+        resource_type_element,
+        &[ParamStyle::Header, ParamStyle::Query],
+    );
 
     Ok(ResourceType {
         id,
@@ -245,7 +320,7 @@ pub fn parse_representations(request_element: &Element) -> Vec<Representation> {
                 let docs = parse_docs(element);
                 let id = element.attributes.get("id").cloned();
                 let profile = element.attributes.get("profile").cloned();
-                let params = parse_params(element);
+                let params = parse_params(element, &[ParamStyle::Plain, ParamStyle::Query]);
                 representations.push(Representation {
                     id,
                     media_type,
@@ -261,10 +336,33 @@ pub fn parse_representations(request_element: &Element) -> Vec<Representation> {
     representations
 }
 
+pub fn parse_response(response_element: &Element) -> Response {
+    let docs = parse_docs(response_element);
+
+    let representations = parse_representations(response_element);
+
+    let status = response_element
+        .attributes
+        .get("status")
+        .cloned()
+        .unwrap_or_default()
+        .parse()
+        .unwrap();
+
+    let params = parse_params(response_element, &[ParamStyle::Header]);
+
+    Response {
+        docs,
+        params,
+        status,
+        representations,
+    }
+}
+
 pub fn parse_request(request_element: &Element) -> Request {
     let docs = parse_docs(request_element);
 
-    let params = parse_params(request_element);
+    let params = parse_params(request_element, &[ParamStyle::Header, ParamStyle::Query]);
 
     let representations = parse_representations(request_element);
 
@@ -295,6 +393,14 @@ pub fn parse_method(method_element: &Element) -> Method {
 
     let request = request_element.map(parse_request);
 
+    let responses = method_element
+        .children
+        .iter()
+        .filter(|node| node.as_element().map_or(false, |e| e.name == "response"))
+        .map(|node| node.as_element().unwrap())
+        .map(parse_response)
+        .collect();
+
     let docs = parse_docs(method_element);
 
     Method {
@@ -302,6 +408,7 @@ pub fn parse_method(method_element: &Element) -> Method {
         name,
         docs,
         request,
+        responses,
     }
 }
 
