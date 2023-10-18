@@ -81,14 +81,21 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                 let id = element.attributes.get("id").cloned();
                 let name = element.attributes.get("name").cloned().unwrap();
                 let r#type = if let Some(t) = element.attributes.get("type") {
-                    Some(TypeRef::Name(t.clone()))
+                    Some(TypeRef::Simple(t.clone()))
                 } else {
                     element.children.iter().find_map(|node| {
                         if let Some(element) = node.as_element() {
                             if element.name == "link" {
-                                let href =
-                                    element.attributes.get("resource_type").cloned().unwrap();
-                                Some(TypeRef::Link(href.parse().unwrap()))
+                                match element.attributes.get("resource_type") {
+                                    Some(href) => {
+                                        if let Some(s) = href.strip_prefix('#') {
+                                            Some(TypeRef::ResourceTypeId(s.to_string()))
+                                        } else {
+                                            Some(TypeRef::ResourceTypeLink(href.parse().unwrap()))
+                                        }
+                                    }
+                                    None => Some(TypeRef::EmptyLink),
+                                }
                             } else {
                                 None
                             }
@@ -121,13 +128,10 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                 }
                 let r#type = match r#type {
                     Some(t) => t,
-                    None => {
-                        log::warn!("No type for param: {}", name);
-                        TypeRef::Name("string".to_string())
-                    }
+                    None if options.is_some() => TypeRef::Options(options.unwrap()),
+                    None => TypeRef::NoType,
                 };
                 params.push(Param {
-                    options,
                     style,
                     id,
                     name,
@@ -148,7 +152,7 @@ fn parse_resource(element: &Element) -> Result<Resource, Error> {
     let id = element.attributes.get("id").cloned();
     let path = element.attributes.get("path").cloned();
     let r#type = element.attributes.get("type").cloned().map(|s| {
-        s.split(" ")
+        s.split(' ')
             .map(|x| x.parse::<TypeRef>().unwrap())
             .collect()
     });
@@ -300,11 +304,14 @@ pub fn parse<R: Read>(reader: R) -> Result<Application, Error> {
 
     let docs = parse_docs(&root);
 
+    let representations = parse_representations(&root);
+
     Ok(Application {
         resources,
         docs,
         resource_types,
         grammars,
+        representations,
     })
 }
 
