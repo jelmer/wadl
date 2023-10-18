@@ -117,6 +117,9 @@ pub struct Doc {
 
     /// The content of the documentation.
     pub content: String,
+
+    /// The namespace of the documentation.
+    pub xmlns: Option<url::Url>,
 }
 
 #[derive(Debug)]
@@ -386,10 +389,17 @@ fn parse_docs(resource_element: &Element) -> Vec<Doc> {
                     .attributes
                     .get("{http://www.w3.org/XML/1998/namespace}lang")
                     .cloned();
+                let xmlns = element
+                    .attributes
+                    .get("xmlns")
+                    .cloned()
+                    .map(|u| u.parse().unwrap());
+
                 docs.push(Doc {
                     title,
                     lang,
                     content,
+                    xmlns,
                 });
             }
         }
