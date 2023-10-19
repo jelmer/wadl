@@ -81,29 +81,33 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                 let options = parse_options(element);
                 let id = element.attributes.get("id").cloned();
                 let name = element.attributes.get("name").cloned().unwrap();
-                let r#type = if let Some(t) = element.attributes.get("type") {
-                    Some(TypeRef::Simple(t.clone()))
-                } else {
-                    element.children.iter().find_map(|node| {
-                        if let Some(element) = node.as_element() {
-                            if element.name == "link" {
-                                match element.attributes.get("resource_type") {
-                                    Some(href) => {
-                                        if let Some(s) = href.strip_prefix('#') {
-                                            Some(TypeRef::ResourceTypeId(s.to_string()))
-                                        } else {
-                                            Some(TypeRef::ResourceTypeLink(href.parse().unwrap()))
-                                        }
-                                    }
-                                    None => Some(TypeRef::EmptyLink),
-                                }
-                            } else {
-                                None
+                let link_type = element.children.iter().find_map(|node| {
+                    if let Some(element) = node.as_element() {
+                        if element.name == "link" {
+                            match element.attributes.get("resource_type") {
+                                Some(href) => Some(TypeRef::ResourceType(
+                                    if let Some(s) = href.strip_prefix('#') {
+                                        ResourceTypeRef::Id(s.to_string())
+                                    } else {
+                                        ResourceTypeRef::Link(href.parse().unwrap())
+                                    },
+                                )),
+                                None => Some(TypeRef::EmptyLink),
                             }
                         } else {
                             None
                         }
-                    })
+                    } else {
+                        None
+                    }
+                });
+                let r#type = if let Some(t) = link_type {
+                    Some(t)
+                } else {
+                    element
+                        .attributes
+                        .get("type")
+                        .map(|t| TypeRef::Simple(t.clone()))
                 };
                 let path = element.attributes.get("path").cloned();
                 let required = element
@@ -312,7 +316,13 @@ pub fn parse<R: Read>(reader: R) -> Result<Application, Error> {
         docs,
         resource_types,
         grammars,
-        representations,
+        representations: representations
+            .into_iter()
+            .map(|r| match r {
+                Representation::Definition(r) => r,
+                Representation::Reference(_) => panic!("Reference in root"),
+            })
+            .collect(),
     })
 }
 
@@ -335,23 +345,35 @@ fn parse_representations(request_element: &Element) -> Vec<Representation> {
     for representation_node in &request_element.children {
         if let Some(element) = representation_node.as_element() {
             if element.name == "representation" {
-                let element_name = element.attributes.get("element").cloned();
-                let media_type = element
-                    .attributes
-                    .get("mediaType")
-                    .map(|s| s.parse().unwrap());
-                let docs = parse_docs(element);
-                let id = element.attributes.get("id").cloned();
-                let profile = element.attributes.get("profile").cloned();
-                let params = parse_params(element, &[ParamStyle::Plain, ParamStyle::Query]);
-                representations.push(Representation {
-                    id,
-                    media_type,
-                    docs,
-                    element: element_name,
-                    profile,
-                    params,
-                });
+                if let Some(href) = element.attributes.get("href") {
+                    if let Some(id) = href.strip_prefix('#') {
+                        representations.push(Representation::Reference(RepresentationRef::Id(
+                            id.to_string(),
+                        )));
+                    } else {
+                        representations.push(Representation::Reference(RepresentationRef::Link(
+                            href.parse().unwrap(),
+                        )));
+                    }
+                } else {
+                    let element_name = element.attributes.get("element").cloned();
+                    let media_type = element
+                        .attributes
+                        .get("mediaType")
+                        .map(|s| s.parse().unwrap());
+                    let docs = parse_docs(element);
+                    let id = element.attributes.get("id").cloned();
+                    let profile = element.attributes.get("profile").cloned();
+                    let params = parse_params(element, &[ParamStyle::Plain, ParamStyle::Query]);
+                    representations.push(Representation::Definition(RepresentationDef {
+                        id,
+                        media_type,
+                        docs,
+                        element: element_name,
+                        profile,
+                        params,
+                    }));
+                }
             }
         }
     }
@@ -411,7 +433,7 @@ fn parse_method(method_element: &Element) -> Method {
         .find(|node| node.as_element().map_or(false, |e| e.name == "request"))
         .and_then(|node| node.as_element());
 
-    let request = request_element.map(parse_request);
+    let request = request_element.map(parse_request).unwrap_or_default();
 
     let responses = method_element
         .children

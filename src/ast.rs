@@ -25,7 +25,7 @@ pub struct Application {
 
     pub grammars: Vec<Grammar>,
 
-    pub representations: Vec<Representation>,
+    pub representations: Vec<RepresentationDef>,
 }
 
 impl Application {
@@ -68,10 +68,24 @@ pub struct Grammar {
 }
 
 #[derive(Debug)]
+pub enum ResourceTypeRef {
+    Id(Id),
+    Link(Url),
+}
+
+impl ResourceTypeRef {
+    pub fn id(&self) -> Option<&str> {
+        match self {
+            ResourceTypeRef::Id(id) => Some(id),
+            ResourceTypeRef::Link(l) => l.fragment(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum TypeRef {
     Simple(String),
-    ResourceTypeId(Id),
-    ResourceTypeLink(Url),
+    ResourceType(ResourceTypeRef),
     EmptyLink,
     NoType,
     Options(HashMap<String, Option<String>>),
@@ -82,7 +96,7 @@ impl std::str::FromStr for TypeRef {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(s) = s.strip_prefix('#') {
-            Ok(TypeRef::ResourceTypeId(s.to_string()))
+            Ok(TypeRef::ResourceType(ResourceTypeRef::Id(s.to_string())))
         } else {
             Ok(TypeRef::Simple(s.to_string()))
         }
@@ -131,7 +145,7 @@ pub struct Method {
     pub id: Id,
     pub name: String,
     pub docs: Vec<Doc>,
-    pub request: Option<Request>,
+    pub request: Request,
     pub responses: Vec<Response>,
 }
 
@@ -163,7 +177,7 @@ pub struct Param {
 }
 
 #[derive(Debug)]
-pub struct Representation {
+pub struct RepresentationDef {
     pub id: Option<Id>,
     pub media_type: Option<mime::Mime>,
     pub element: Option<String>,
@@ -172,7 +186,43 @@ pub struct Representation {
     pub params: Vec<Param>,
 }
 
+#[derive(Debug)]
+pub enum RepresentationRef {
+    /// A reference to a representation defined in the same document.
+    Id(Id),
+    Link(Url),
+}
+
+impl RepresentationRef {
+    pub fn id(&self) -> Option<&str> {
+        match self {
+            RepresentationRef::Id(id) => Some(id),
+            RepresentationRef::Link(l) => l.fragment(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Representation {
+    Reference(RepresentationRef),
+    Definition(RepresentationDef),
+}
+
 impl Representation {
+    pub fn url(&self, base_url: &Url) -> Option<Url> {
+        match self {
+            Representation::Reference(RepresentationRef::Id(id)) => {
+                let mut url = base_url.clone();
+                url.set_fragment(Some(id));
+                Some(url)
+            }
+            Representation::Reference(RepresentationRef::Link(l)) => Some(l.clone()),
+            Representation::Definition(d) => d.url(base_url),
+        }
+    }
+}
+
+impl RepresentationDef {
     pub fn url(&self, base_url: &Url) -> Option<Url> {
         if let Some(id) = &self.id {
             let mut url = base_url.clone();
@@ -184,7 +234,7 @@ impl Representation {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Request {
     pub docs: Vec<Doc>,
     pub params: Vec<Param>,
