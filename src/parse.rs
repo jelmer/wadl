@@ -4,6 +4,7 @@ use std::io::Read;
 use url::Url;
 use xmltree::Element;
 
+#[allow(unused)]
 pub const WADL_NS: &str = "http://wadl.dev.java.net/2009/02";
 
 #[derive(Debug)]
