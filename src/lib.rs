@@ -1,4 +1,5 @@
 pub mod ast;
+#[cfg(feature = "codegen")]
 pub mod codegen;
 mod parse;
 
