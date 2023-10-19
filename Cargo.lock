@@ -365,7 +365,7 @@ checksum = "711b9620af191e0cdc7468a8d14e709c3dcdb115b36f838e601583af800a370a"
 
 [[package]]
 name = "wadl"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "env_logger",
@@ -376,7 +376,6 @@ dependencies = [
  "quote",
  "syn",
  "url",
- "xml",
  "xmltree",
 ]
 
@@ -476,15 +475,6 @@ name = "windows_x86_64_msvc"
 version = "0.48.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed94fce61571a4006852b7389a063ab983c02eb1bb37b47f8272ce92d06d9538"
-
-[[package]]
-name = "xml"
-version = "0.8.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cb5b0add8d5aaa69357818de5f3b60104a62ef345dca81d0947e2148347a7f7"
-dependencies = [
- "xml-rs",
-]
 
 [[package]]
 name = "xml-rs"
