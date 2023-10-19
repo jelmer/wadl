@@ -15,7 +15,7 @@ fn main() {
 
     let input: wadl::ast::Application = wadl::parse_file(input).unwrap();
 
-    let code = wadl::codegen::generate(&input);
+    let code = wadl::codegen::generate(&input, &wadl::codegen::Config::default());
 
     // If output isn't specified, write to stdout
     if let Some(output) = output {
