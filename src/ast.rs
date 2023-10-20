@@ -73,6 +73,20 @@ pub enum ResourceTypeRef {
     Link(Url),
 }
 
+impl std::str::FromStr for ResourceTypeRef {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(s) = s.strip_prefix('#') {
+            Ok(ResourceTypeRef::Id(s.to_string()))
+        } else {
+            Ok(ResourceTypeRef::Link(
+                s.parse().map_err(|e| format!("{}", e))?,
+            ))
+        }
+    }
+}
+
 impl ResourceTypeRef {
     pub fn id(&self) -> Option<&str> {
         match self {
@@ -111,8 +125,8 @@ pub struct Resource {
     /// The path of the resource.
     pub path: Option<String>,
 
-    /// The type of the resource.
-    pub r#type: Option<Vec<TypeRef>>,
+    /// The types of the resource.
+    pub r#type: Vec<ResourceTypeRef>,
 
     /// The query type of the resource.
     pub query_type: mime::Mime,

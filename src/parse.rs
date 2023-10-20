@@ -39,6 +39,19 @@ impl From<mime::FromStrError> for Error {
     }
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match &self {
+            Error::Io(e) => write!(f, "IO error: {}", e),
+            Error::Xml(e) => write!(f, "XML error: {}", e),
+            Error::Url(e) => write!(f, "URL error: {}", e),
+            Error::Mime(e) => write!(f, "MIME error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
 pub fn parse_options(element: &Element) -> Option<HashMap<String, Option<String>>> {
     let mut options = HashMap::new();
 
@@ -163,11 +176,14 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
 fn parse_resource(element: &Element) -> Result<Resource, Error> {
     let id = element.attributes.get("id").cloned();
     let path = element.attributes.get("path").cloned();
-    let r#type = element.attributes.get("type").cloned().map(|s| {
-        s.split(' ')
-            .map(|x| x.parse::<TypeRef>().unwrap())
-            .collect()
-    });
+    let r#type = element
+        .attributes
+        .get("type")
+        .map(|s| s.as_str())
+        .unwrap_or("")
+        .split(' ')
+        .map(|x| x.parse::<ResourceTypeRef>().unwrap())
+        .collect();
     let query_type: mime::Mime = element
         .attributes
         .get("queryType")
