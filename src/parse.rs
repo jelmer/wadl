@@ -131,6 +131,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                         allowed_styles
                     );
                 }
+                let doc = parse_docs(element);
                 let r#type = match r#type {
                     Some(t) => t,
                     None if options.is_some() => TypeRef::Options(options.unwrap()),
@@ -145,6 +146,12 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     required,
                     repeating,
                     fixed,
+                    doc: if doc.len() == 1 {
+                        Some(doc.into_iter().next().unwrap())
+                    } else {
+                        assert!(doc.is_empty());
+                        None
+                    },
                 });
             }
         }
