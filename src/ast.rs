@@ -174,6 +174,7 @@ pub struct Param {
     pub required: bool,
     pub repeating: bool,
     pub fixed: Option<String>,
+    pub doc: Option<Doc>,
 }
 
 #[derive(Debug)]

@@ -57,6 +57,20 @@ fn test_snake_case_name() {
     assert_eq!(snake_case_name("_FooBar"), "_foo_bar");
 }
 
+fn format_doc(input: &Doc) -> String {
+    match input.xmlns.as_ref().map(|x| x.as_str()) {
+        Some("http://www.w3.org/1999/xhtml") => html2md::parse_html(&input.content)
+            .lines()
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Some(xmlns) => {
+            log::warn!("Unknown xmlns: {}", xmlns);
+            input.content.lines().collect::<Vec<_>>().join("\n")
+        }
+        None => input.content.lines().collect::<Vec<_>>().join("\n"),
+    }
+}
+
 fn generate_doc(input: &Doc, indent: usize) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
 
@@ -64,22 +78,9 @@ fn generate_doc(input: &Doc, indent: usize) -> Vec<String> {
         lines.extend(vec![format!("/// # {}\n", title), "///\n".to_string()]);
     }
 
-    lines.push(if let Some(xmlns) = &input.xmlns {
-        let lang = match xmlns.as_str() {
-            "http://www.w3.org/2001/XMLSchema" => "xml",
-            "http://www.w3.org/1999/xhtml" => "html",
-            _ => {
-                log::warn!("Unknown xmlns: {}", xmlns);
-                ""
-            }
-        };
-        format!("/// ```{}\n", lang)
-    } else {
-        "/// ```\n".to_string()
-    });
+    let text = format_doc(input);
 
-    lines.extend(input.content.lines().map(|line| format!("/// {}\n", line)));
-    lines.push("/// ```\n".to_string());
+    lines.extend(text.lines().map(|line| format!("/// {}\n", line)));
     if indent > 0 {
         lines = lines
             .into_iter()
@@ -317,10 +318,6 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
 pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<String> {
     let mut lines = vec![];
 
-    for doc in &input.docs {
-        lines.extend(generate_doc(doc, 1));
-    }
-
     let name = input.id.as_str();
     let name = name
         .strip_prefix(format!("{}-", parent_id).as_str())
@@ -343,6 +340,14 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
             .flatten(),
     );
 
+    for doc in &input.docs {
+        lines.extend(generate_doc(doc, 1));
+    }
+
+    if !params.is_empty() {
+        lines.push("    /// # Arguments\n".to_string());
+    }
+
     for param in &params {
         if param.fixed.is_some() {
             continue;
@@ -355,6 +360,12 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         }
 
         line.push_str(format!(", {}: {}", param_name, param_type).as_str());
+
+        if let Some(doc) = param.doc.as_ref() {
+            lines.push(format!("    /// * `{}`: {}\n", param_name, format_doc(doc)));
+        } else {
+            lines.push(format!("    /// * `{}`\n", param_name));
+        }
     }
     line.push_str(") -> Result<");
     if input.responses.is_empty() {
@@ -406,7 +417,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
             }
             if needs_iter {
                 lines.push(format!(
-                    "{:indent$}for {} in {} {{\n",
+                    "{:indent$}        for {} in {} {{\n",
                     "", param_name, param_name
                 ));
                 indent += 4;
