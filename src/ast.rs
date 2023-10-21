@@ -41,6 +41,18 @@ impl Application {
             None
         }
     }
+
+    pub fn iter_resources(&self) -> impl Iterator<Item = (Url, &Resource)> {
+        self.resources
+            .iter()
+            .flat_map(|rs| rs.resources.iter().map(|r| (r.url(rs.base.as_ref()), r)))
+    }
+
+    pub fn get_resource_by_href(&self, href: &Url) -> Option<&Resource> {
+        self.iter_resources()
+            .find(|(url, _)| url == href)
+            .map(|(_, r)| r)
+    }
 }
 
 impl std::str::FromStr for Application {
@@ -65,7 +77,7 @@ pub struct Grammar {
     pub href: Url,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ResourceTypeRef {
     Id(Id),
     Link(Url),
@@ -94,7 +106,7 @@ impl ResourceTypeRef {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TypeRef {
     Simple(String),
     ResourceType(ResourceTypeRef),
@@ -115,7 +127,7 @@ impl std::str::FromStr for TypeRef {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Resource {
     /// The ID of the resource.
     pub id: Option<Id>,
@@ -152,7 +164,7 @@ impl Resource {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Method {
     pub id: Id,
     pub name: String,
@@ -161,7 +173,7 @@ pub struct Method {
     pub responses: Vec<Response>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Doc {
     /// The title of the documentation.
     pub title: Option<String>,
@@ -176,7 +188,7 @@ pub struct Doc {
     pub xmlns: Option<url::Url>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Param {
     pub style: ParamStyle,
     pub id: Option<Id>,
@@ -189,7 +201,7 @@ pub struct Param {
     pub doc: Option<Doc>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RepresentationDef {
     pub id: Option<Id>,
     pub media_type: Option<mime::Mime>,
@@ -199,7 +211,7 @@ pub struct RepresentationDef {
     pub params: Vec<Param>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RepresentationRef {
     /// A reference to a representation defined in the same document.
     Id(Id),
@@ -215,7 +227,7 @@ impl RepresentationRef {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Representation {
     Reference(RepresentationRef),
     Definition(RepresentationDef),
@@ -247,14 +259,14 @@ impl RepresentationDef {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Request {
     pub docs: Vec<Doc>,
     pub params: Vec<Param>,
     pub representations: Vec<Representation>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Response {
     pub docs: Vec<Doc>,
     pub params: Vec<Param>,
