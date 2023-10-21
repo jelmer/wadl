@@ -508,17 +508,13 @@ pub fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<Stri
         lines.extend(generate_doc(doc, 0));
     }
 
-    let name = input.id.as_ref().unwrap().as_str();
+    let name = input.id.as_str();
     let name = camel_case_name(name);
 
     lines.push(format!("pub trait {} : Resource {{\n", name));
 
     for method in &input.methods {
-        lines.extend(generate_method(
-            method,
-            input.id.as_ref().unwrap().as_str(),
-            config,
-        ));
+        lines.extend(generate_method(method, input.id.as_str(), config));
     }
 
     lines.push("}\n".to_string());

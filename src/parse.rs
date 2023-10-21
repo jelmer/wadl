@@ -265,7 +265,7 @@ fn parse_docs(resource_element: &Element) -> Vec<Doc> {
 }
 
 fn parse_resource_type(resource_type_element: &Element) -> Result<ResourceType, Error> {
-    let id = resource_type_element.attributes.get("id").cloned();
+    let id = resource_type_element.attributes.get("id").cloned().unwrap();
     let query_type: mime::Mime = resource_type_element
         .attributes
         .get("queryType")

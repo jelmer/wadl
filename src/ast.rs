@@ -30,9 +30,7 @@ pub struct Application {
 
 impl Application {
     pub fn get_resource_type_by_id(&self, id: &str) -> Option<&ResourceType> {
-        self.resource_types
-            .iter()
-            .find(|rt| rt.id.as_ref().map(|i| i == id).unwrap_or(false))
+        self.resource_types.iter().find(|rt| id == rt.id.as_str())
     }
 
     pub fn get_resource_type_by_href(&self, href: &Url) -> Option<&ResourceType> {
@@ -266,7 +264,7 @@ pub struct Response {
 
 #[derive(Debug)]
 pub struct ResourceType {
-    pub id: Option<Id>,
+    pub id: Id,
     pub query_type: mime::Mime,
     pub methods: Vec<Method>,
     pub docs: Vec<Doc>,
