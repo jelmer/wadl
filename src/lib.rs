@@ -19,6 +19,7 @@ pub enum Error {
     Reqwest(reqwest::Error),
     Url(url::ParseError),
     Json(serde_json::Error),
+    Wadl(ParseError),
 }
 
 impl From<serde_json::Error> for Error {
@@ -34,6 +35,7 @@ impl std::fmt::Display for Error {
             Error::Reqwest(err) => write!(f, "Reqwest error: {}", err),
             Error::Url(err) => write!(f, "URL error: {}", err),
             Error::Json(err) => write!(f, "JSON error: {}", err),
+            Error::Wadl(err) => write!(f, "WADL error: {}", err),
         }
     }
 }
@@ -51,3 +53,10 @@ impl From<url::ParseError> for Error {
         Error::Url(err)
     }
 }
+
+impl From<ParseError> for Error {
+    fn from(err: ParseError) -> Self {
+        Error::Wadl(err)
+    }
+}
+
