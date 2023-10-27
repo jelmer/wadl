@@ -108,13 +108,14 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
     lines.push(format!("impl {} {{\n", name));
 
     for param in &input.params {
-        let field_name = if let Some(rename_fn) = config.param_accessor_rename.as_ref() {
+        let field_name = snake_case_name(param.name.as_str());
+        let accessor_name = if let Some(rename_fn) = config.param_accessor_rename.as_ref() {
             rename_fn(param.name.as_str())
         } else {
             None
-        };
+        }
+        .unwrap_or_else(|| field_name.to_string());
 
-        let field_name = field_name.unwrap_or(snake_case_name(param.name.as_str()));
         match &param.r#type {
             TypeRef::ResourceType(r) => {
                 let id = r.id().unwrap();
@@ -125,7 +126,7 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                 }
                 lines.push(format!(
                     "    pub fn {}(&self) -> Result<{}, Error> {{\n",
-                    field_name, ret_type
+                    accessor_name, ret_type
                 ));
                 lines.push("        struct MyResource(url::Url);\n".to_string());
                 lines.push("        impl Resource for MyResource { fn url(&self) -> url::Url { self.0.clone() } }\n".to_string());
