@@ -53,6 +53,16 @@ impl Application {
             .find(|(url, _)| url == href)
             .map(|(_, r)| r)
     }
+
+    pub fn iter_all_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+        self.iter_resources()
+            .flat_map(|(_u, r)| r.iter_all_types())
+            .chain(
+                self.resource_types
+                    .iter()
+                    .flat_map(|rt| rt.iter_all_types()),
+            )
+    }
 }
 
 impl std::str::FromStr for Application {
@@ -162,6 +172,16 @@ impl Resource {
         } else {
             Url::parse(self.path.as_ref().unwrap()).unwrap()
         }
+    }
+
+    pub(crate) fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.params
+            .iter()
+            .chain(self.methods.iter().flat_map(|m| m.request.params.iter()))
+    }
+
+    pub fn iter_all_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+        self.iter_all_params().map(|p| p.r#type.clone())
     }
 }
 
@@ -283,4 +303,16 @@ pub struct ResourceType {
     pub docs: Vec<Doc>,
     pub subresources: Vec<Resource>,
     pub params: Vec<Param>,
+}
+
+impl ResourceType {
+    pub(crate) fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.params
+            .iter()
+            .chain(self.methods.iter().flat_map(|m| m.request.params.iter()))
+    }
+
+    pub fn iter_all_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+        self.iter_all_params().map(|p| p.r#type.clone())
+    }
 }
