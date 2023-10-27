@@ -168,10 +168,6 @@ fn param_rust_type(param: &Param, config: &Config) -> (String, Vec<String>) {
             "binary" => ("Vec<u8>".to_string(), vec![]),
             u => panic!("Unknown type: {}", u),
         },
-        TypeRef::EmptyLink => {
-            // This would be a reference to the representation itself
-            ("url::Url".to_string(), vec![])
-        }
         TypeRef::ResourceType(_) => ("url::Url".to_string(), vec![]),
         TypeRef::Options(_options) => {
             // TODO: define an enum for this
@@ -237,10 +233,10 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
         let (param_type, annotations) = param_rust_type(param, config);
         let comment = match &param.r#type {
             TypeRef::Simple(name) => format!("was: {}", name),
-            TypeRef::EmptyLink => "was: empty link".to_string(),
             TypeRef::ResourceType(r) => match r {
                 ResourceTypeRef::Id(id) => format!("resource type id: {}", id),
                 ResourceTypeRef::Link(href) => format!("resource type link: {}", href),
+                ResourceTypeRef::Empty => "was: empty link".to_string(),
             },
             TypeRef::Options(options) => format!("options: {:?}", options),
             TypeRef::NoType => "no type for parameter in WADL".to_string(),

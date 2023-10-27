@@ -105,7 +105,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                                         ResourceTypeRef::Link(href.parse().unwrap())
                                     },
                                 )),
-                                None => Some(TypeRef::EmptyLink),
+                                None => Some(TypeRef::ResourceType(ResourceTypeRef::Empty)),
                             }
                         } else {
                             None

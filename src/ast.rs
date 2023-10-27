@@ -81,6 +81,7 @@ pub struct Grammar {
 pub enum ResourceTypeRef {
     Id(Id),
     Link(Url),
+    Empty,
 }
 
 impl std::str::FromStr for ResourceTypeRef {
@@ -102,6 +103,7 @@ impl ResourceTypeRef {
         match self {
             ResourceTypeRef::Id(id) => Some(id),
             ResourceTypeRef::Link(l) => l.fragment(),
+            ResourceTypeRef::Empty => None,
         }
     }
 }
@@ -110,7 +112,6 @@ impl ResourceTypeRef {
 pub enum TypeRef {
     Simple(String),
     ResourceType(ResourceTypeRef),
-    EmptyLink,
     NoType,
     Options(HashMap<String, Option<String>>),
 }
