@@ -108,7 +108,13 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
     lines.push(format!("impl {} {{\n", name));
 
     for param in &input.params {
-        let field_name = snake_case_name(param.name.as_str());
+        let field_name = if let Some(rename_fn) = config.param_accessor_rename.as_ref() {
+            rename_fn(param.name.as_str())
+        } else {
+            None
+        };
+
+        let field_name = field_name.unwrap_or(snake_case_name(param.name.as_str()));
         match &param.r#type {
             TypeRef::ResourceType(r) => {
                 let id = r.id().unwrap();
@@ -524,7 +530,11 @@ pub fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<Stri
 
 #[derive(Default)]
 pub struct Config {
+    /// Based on the name of a parameter, determine the rust type
     pub guess_type_name: Option<Box<dyn Fn(&str) -> Option<String>>>,
+
+    /// Support renaming param accessor functions
+    pub param_accessor_rename: Option<Box<dyn Fn(&str) -> Option<String>>>,
 }
 
 pub fn generate(app: &Application, config: &Config) -> String {
