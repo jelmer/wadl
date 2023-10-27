@@ -118,32 +118,41 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
 
         match &param.r#type {
             TypeRef::ResourceType(r) => {
-                let id = r.id().unwrap();
-                let field_type = camel_case_name(id);
-                let mut ret_type = format!("Box<dyn {}>", field_type);
-                if !param.required {
-                    ret_type = format!("Option<{}>", ret_type);
-                }
-                lines.push(format!(
-                    "    pub fn {}(&self) -> Result<{}, Error> {{\n",
-                    accessor_name, ret_type
-                ));
-                lines.push("        struct MyResource(url::Url);\n".to_string());
-                lines.push("        impl Resource for MyResource { fn url(&self) -> url::Url { self.0.clone() } }\n".to_string());
-                lines.push(format!("        impl {} for MyResource {{}}\n", field_type));
-                if param.required {
+                if let Some(id) = r.id() {
+                    let field_type = camel_case_name(id);
+                    let mut ret_type = format!("Box<dyn {}>", field_type);
+                    if !param.required {
+                        ret_type = format!("Option<{}>", ret_type);
+                    }
                     lines.push(format!(
-                        "        Ok(Box::new(MyResource(self.{}.clone())))\n",
-                        field_name
+                        "    pub fn {}(&self) -> Result<{}, Error> {{\n",
+                        accessor_name, ret_type
                     ));
-                } else {
-                    lines.push(format!(
-                        "        Ok(self.{}.as_ref().map(|x| Box::new(MyResource(x.clone())) as Box<dyn {}>))\n",
+                    lines.push(
+                        "        struct MyResource(url::Url, reqwest::blocking::Client);\n"
+                            .to_string(),
+                    );
+                    lines.push("        impl Resource for MyResource {\n".to_string());
+                    lines.push(
+                        "            fn url(&self) -> url::Url { self.0.clone() }\n".to_string(),
+                    );
+                    lines.push("            fn client(&self) -> reqwest::blocking::Client { self.1.clone() }\n".to_string());
+                    lines.push("        }\n".to_string());
+                    lines.push(format!("        impl {} for MyResource {{}}\n", field_type));
+                    if param.required {
+                        lines.push(format!(
+                            "        Ok(Box::new(MyResource(self.{}.clone())))\n",
+                            field_name
+                        ));
+                    } else {
+                        lines.push(format!(
+                        "        Ok(self.{}.as_ref().map(|x| Box::new(MyResource(x.clone(), self.1.)) as Box<dyn {}>))\n",
                         field_name, field_type
                     ));
+                    }
+                    lines.push("    }\n".to_string());
+                    lines.push("\n".to_string());
                 }
-                lines.push("    }\n".to_string());
-                lines.push("\n".to_string());
             }
             _ => {}
         }
