@@ -1,5 +1,7 @@
 use crate::ast::*;
 
+use crate::WADL_MIME_TYPE;
+
 // Convert wadl names (with dashes) to camel-case Rust names
 fn camel_case_name(name: &str) -> String {
     let mut it = name.chars().peekable();
@@ -119,6 +121,9 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
         match &param.r#type {
             TypeRef::ResourceType(r) => {
                 if let Some(id) = r.id() {
+                    for doc in &param.doc {
+                        lines.extend(generate_doc(doc, 1));
+                    }
                     let field_type = camel_case_name(id);
                     let mut ret_type = format!("Box<dyn {}>", field_type);
                     if !param.required {
@@ -264,7 +269,7 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
 }
 
 fn supported_representation_def(d: &RepresentationDef) -> bool {
-    d.media_type != Some("application/vnd.sun.wadl+xml".parse().unwrap())
+    d.media_type != Some(WADL_MIME_TYPE.parse().unwrap())
         && d.media_type != Some("application/xhtml+xml".parse().unwrap())
 }
 
@@ -289,7 +294,7 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
 
                 let mut ret = Vec::new();
                 for param in &input.params {
-                    let (param_type, annotations) = param_rust_type(param, &Config::default());
+                    let (param_type, _annotations) = param_rust_type(param, &Config::default());
                     ret.push(param_type);
                 }
                 if ret.len() == 1 {
@@ -302,7 +307,7 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
     } else if representations.is_empty() {
         let mut ret = Vec::new();
         for param in &input.params {
-            let (param_type, annotations) = param_rust_type(param, &Config::default());
+            let (param_type, _annotations) = param_rust_type(param, &Config::default());
             ret.push(param_type);
         }
         if ret.len() == 1 {
@@ -356,7 +361,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         if param.fixed.is_some() {
             continue;
         }
-        let (param_type, annotations) = param_rust_type(param, config);
+        let (param_type, _annotations) = param_rust_type(param, config);
         let param_type = readonly_rust_type(param_type.as_str());
         let mut param_name = param.name.clone();
         if ["type", "move"].contains(&param_name.as_str()) {
@@ -366,7 +371,20 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         line.push_str(format!(", {}: {}", param_name, param_type).as_str());
 
         if let Some(doc) = param.doc.as_ref() {
-            lines.push(format!("    /// * `{}`: {}\n", param_name, format_doc(doc)));
+            let doc = format_doc(doc);
+            let mut doc_lines = doc
+                .trim_start_matches('\n')
+                .split('\n')
+                .collect::<Vec<_>>()
+                .into_iter();
+            lines.push(format!(
+                "    /// * `{}`: {}\n",
+                param_name,
+                doc_lines.next().unwrap()
+            ));
+            for doc_line in doc_lines {
+                lines.push(format!("    ///     {}\n", doc_line));
+            }
         } else {
             lines.push(format!("    /// * `{}`\n", param_name));
         }
@@ -403,7 +421,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
                 param_name = format!("r#{}", param_name);
             }
 
-            let (param_type, annotations) = param_rust_type(param, config);
+            let (param_type, _annotations) = param_rust_type(param, config);
             let value = format!("&{}.to_string()", param_name);
 
             let mut indent = 0;
