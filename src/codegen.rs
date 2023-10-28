@@ -118,32 +118,41 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
 
         match &param.r#type {
             TypeRef::ResourceType(r) => {
-                let id = r.id().unwrap();
-                let field_type = camel_case_name(id);
-                let mut ret_type = format!("Box<dyn {}>", field_type);
-                if !param.required {
-                    ret_type = format!("Option<{}>", ret_type);
-                }
-                lines.push(format!(
-                    "    pub fn {}(&self) -> Result<{}, Error> {{\n",
-                    accessor_name, ret_type
-                ));
-                lines.push("        struct MyResource(url::Url);\n".to_string());
-                lines.push("        impl Resource for MyResource { fn url(&self) -> url::Url { self.0.clone() } }\n".to_string());
-                lines.push(format!("        impl {} for MyResource {{}}\n", field_type));
-                if param.required {
+                if let Some(id) = r.id() {
+                    let field_type = camel_case_name(id);
+                    let mut ret_type = format!("Box<dyn {}>", field_type);
+                    if !param.required {
+                        ret_type = format!("Option<{}>", ret_type);
+                    }
                     lines.push(format!(
-                        "        Ok(Box::new(MyResource(self.{}.clone())))\n",
-                        field_name
+                        "    pub fn {}(&self) -> Result<{}, Error> {{\n",
+                        accessor_name, ret_type
                     ));
-                } else {
-                    lines.push(format!(
-                        "        Ok(self.{}.as_ref().map(|x| Box::new(MyResource(x.clone())) as Box<dyn {}>))\n",
+                    lines.push(
+                        "        struct MyResource(url::Url, reqwest::blocking::Client);\n"
+                            .to_string(),
+                    );
+                    lines.push("        impl Resource for MyResource {\n".to_string());
+                    lines.push(
+                        "            fn url(&self) -> url::Url { self.0.clone() }\n".to_string(),
+                    );
+                    lines.push("            fn client(&self) -> reqwest::blocking::Client { self.1.clone() }\n".to_string());
+                    lines.push("        }\n".to_string());
+                    lines.push(format!("        impl {} for MyResource {{}}\n", field_type));
+                    if param.required {
+                        lines.push(format!(
+                            "        Ok(Box::new(MyResource(self.{}.clone())))\n",
+                            field_name
+                        ));
+                    } else {
+                        lines.push(format!(
+                        "        Ok(self.{}.as_ref().map(|x| Box::new(MyResource(x.clone(), self.1.)) as Box<dyn {}>))\n",
                         field_name, field_type
                     ));
+                    }
+                    lines.push("    }\n".to_string());
+                    lines.push("\n".to_string());
                 }
-                lines.push("    }\n".to_string());
-                lines.push("\n".to_string());
             }
             _ => {}
         }
@@ -168,10 +177,6 @@ fn param_rust_type(param: &Param, config: &Config) -> (String, Vec<String>) {
             "binary" => ("Vec<u8>".to_string(), vec![]),
             u => panic!("Unknown type: {}", u),
         },
-        TypeRef::EmptyLink => {
-            // This would be a reference to the representation itself
-            ("url::Url".to_string(), vec![])
-        }
         TypeRef::ResourceType(_) => ("url::Url".to_string(), vec![]),
         TypeRef::Options(_options) => {
             // TODO: define an enum for this
@@ -237,10 +242,10 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
         let (param_type, annotations) = param_rust_type(param, config);
         let comment = match &param.r#type {
             TypeRef::Simple(name) => format!("was: {}", name),
-            TypeRef::EmptyLink => "was: empty link".to_string(),
             TypeRef::ResourceType(r) => match r {
                 ResourceTypeRef::Id(id) => format!("resource type id: {}", id),
                 ResourceTypeRef::Link(href) => format!("resource type link: {}", href),
+                ResourceTypeRef::Empty => "was: empty link".to_string(),
             },
             TypeRef::Options(options) => format!("options: {:?}", options),
             TypeRef::NoType => "no type for parameter in WADL".to_string(),
