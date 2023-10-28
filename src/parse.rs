@@ -244,21 +244,33 @@ fn parse_docs(resource_element: &Element) -> Vec<Doc> {
         if let Some(element) = doc_node.as_element() {
             if element.name == "doc" {
                 let title = element.attributes.get("title").cloned();
-                let content = element.get_text().unwrap_or_default().trim().to_string();
+                use std::io::Write;
+                let content = Vec::new();
+                let mut cursor = std::io::Cursor::new(content);
+                for child in &element.children {
+                    match child {
+                        xmltree::XMLNode::Text(t) => {
+                            cursor.write_all(t.as_bytes()).unwrap();
+                        }
+                        xmltree::XMLNode::Element(e) => {
+                            e.write(&mut cursor).unwrap();
+                        }
+                        _ => {}
+                    };
+                }
                 let lang = element
                     .attributes
                     .get("{http://www.w3.org/XML/1998/namespace}lang")
                     .cloned();
-                let xmlns = element
-                    .attributes
-                    .get("xmlns")
-                    .cloned()
-                    .map(|u| u.parse().unwrap());
+
+                let namespaces = element.namespaces.as_ref().unwrap();
+
+                let xmlns = namespaces.get("").map(|u| u.parse().unwrap());
 
                 docs.push(Doc {
                     title,
                     lang,
-                    content,
+                    content: String::from_utf8_lossy(cursor.into_inner().as_slice()).to_string(),
                     xmlns,
                 });
             }
@@ -304,6 +316,8 @@ pub fn parse<R: Read>(reader: R) -> Result<Application, Error> {
     let mut grammars = Vec::new();
     let root = Element::parse(reader).map_err(Error::Xml)?;
 
+    let docs = parse_docs(&root);
+
     for resource_node in &root.children {
         if let Some(element) = resource_node.as_element() {
             if element.name == "resources" {
@@ -333,8 +347,6 @@ pub fn parse<R: Read>(reader: R) -> Result<Application, Error> {
             }
         }
     }
-
-    let docs = parse_docs(&root);
 
     let representations = parse_representations(&root);
 

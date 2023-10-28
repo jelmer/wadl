@@ -3,6 +3,8 @@ pub mod ast;
 pub mod codegen;
 mod parse;
 
+pub const WADL_MIME_TYPE: &str = "application/vnd.sun.wadl+xml";
+
 pub use parse::{parse, parse_bytes, parse_file, parse_string, Error as ParseError};
 
 use url::Url;
@@ -59,4 +61,3 @@ impl From<ParseError> for Error {
         Error::Wadl(err)
     }
 }
-
