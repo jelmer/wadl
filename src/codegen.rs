@@ -128,16 +128,8 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                         "    pub fn {}(&self) -> Result<{}, Error> {{\n",
                         accessor_name, ret_type
                     ));
-                    lines.push(
-                        "        struct MyResource(url::Url, reqwest::blocking::Client);\n"
-                            .to_string(),
-                    );
-                    lines.push("        impl Resource for MyResource {\n".to_string());
-                    lines.push(
-                        "            fn url(&self) -> url::Url { self.0.clone() }\n".to_string(),
-                    );
-                    lines.push("            fn client(&self) -> reqwest::blocking::Client { self.1.clone() }\n".to_string());
-                    lines.push("        }\n".to_string());
+                    lines.push("        struct MyResource(url::Url);\n".to_string());
+                    lines.push("        impl Resource for MyResource { fn url(&self) -> url::Url { self.0.clone() } }\n".to_string());
                     lines.push(format!("        impl {} for MyResource {{}}\n", field_type));
                     if param.required {
                         lines.push(format!(
@@ -146,7 +138,7 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                         ));
                     } else {
                         lines.push(format!(
-                        "        Ok(self.{}.as_ref().map(|x| Box::new(MyResource(x.clone(), self.1.)) as Box<dyn {}>))\n",
+                        "        Ok(self.{}.as_ref().map(|x| Box::new(MyResource(x.clone())) as Box<dyn {}>))\n",
                         field_name, field_type
                     ));
                     }
