@@ -52,14 +52,18 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-pub fn parse_options(element: &Element) -> Option<HashMap<String, Option<String>>> {
+pub fn parse_options(element: &Element) -> Option<HashMap<String, Option<mime::Mime>>> {
     let mut options = HashMap::new();
 
     for option_node in &element.children {
         if let Some(element) = option_node.as_element() {
             if element.name == "option" {
                 let value = element.attributes.get("value").cloned();
-                let media_type = element.attributes.get("mediaType").cloned();
+                let media_type = element
+                    .attributes
+                    .get("mediaType")
+                    .cloned()
+                    .map(|x| x.parse().unwrap());
                 options.insert(value.unwrap(), media_type);
             }
         }
@@ -145,10 +149,10 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     );
                 }
                 let doc = parse_docs(element);
-                let r#type = match r#type {
-                    Some(t) => t,
-                    None if options.is_some() => TypeRef::Options(options.unwrap()),
-                    None => TypeRef::NoType,
+                let r#type = match (r#type, options) {
+                    (_, Some(options)) => TypeRef::Options(options),
+                    (Some(t), None) => t,
+                    (None, None) => TypeRef::NoType,
                 };
                 params.push(Param {
                     style,

@@ -123,7 +123,7 @@ pub enum TypeRef {
     Simple(String),
     ResourceType(ResourceTypeRef),
     NoType,
-    Options(HashMap<String, Option<String>>),
+    Options(HashMap<String, Option<mime::Mime>>),
 }
 
 impl std::str::FromStr for TypeRef {
