@@ -77,12 +77,12 @@ fn generate_doc(input: &Doc, indent: usize) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
 
     if let Some(title) = input.title.as_ref() {
-        lines.extend(vec![format!("/// # {}\n", title), "///\n".to_string()]);
+        lines.extend(vec![format!("/// # {}\n", title.trim_end_matches(' ')), "///\n".to_string()]);
     }
 
     let text = format_doc(input);
 
-    lines.extend(text.lines().map(|line| format!("/// {}\n", line)));
+    lines.extend(text.lines().map(|line| format!("/// {}\n", line.trim_end_matches(' '))));
     if indent > 0 {
         lines = lines
             .into_iter()
@@ -380,10 +380,10 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
             lines.push(format!(
                 "    /// * `{}`: {}\n",
                 param_name,
-                doc_lines.next().unwrap()
+                doc_lines.next().unwrap().trim_end_matches(' ')
             ));
             for doc_line in doc_lines {
-                lines.push(format!("    ///     {}\n", doc_line));
+                lines.push(format!("    ///     {}\n", doc_line.trim_end_matches(' ')));
             }
         } else {
             lines.push(format!("    /// * `{}`\n", param_name));
