@@ -4,7 +4,7 @@ version = "0.1.6"
 edition = "2021"
 license = "Apache-2.0"
 description = "A WADL parser for Rust"
-repository = "https://github.com/jelmer/wadl-rs"
+repository = "https://github.com/jelmer/wadl"
 authors = ["Jelmer Vernooĳ <jelmer@jelmer.uk>"]
 default-run = "wadlc"
 
