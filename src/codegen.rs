@@ -96,16 +96,16 @@ fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
 
     if let Some(title) = input.title.as_ref() {
-        lines.extend(vec![format!("/// # {}\n", title.trim_end_matches(' ')), "///\n".to_string()]);
+        lines.extend(vec![format!("/// # {}\n", title), "///\n".to_string()]);
     }
 
     let text = format_doc(input, config);
 
-    lines.extend(text.lines().map(|line| format!("/// {}\n", line.trim_end_matches(' '))));
+    lines.extend(text.lines().map(|line| format!("/// {}\n", line)));
     if indent > 0 {
         lines = lines
             .into_iter()
-            .map(|line| format!("{:indent$}{}", "", line, indent = indent * 4))
+            .map(|line| format!("{:indent$}{}", "", line.trim_end_matches(' '), indent = indent * 4))
             .collect();
     }
     lines
@@ -176,6 +176,10 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
 
     lines.push("}\n".to_string());
     lines.push("\n".to_string());
+
+    if let Some(generate) = config.generate_representation_traits.as_ref() {
+        lines.extend(generate(name.as_str(), input, config).unwrap_or(vec![]));
+    }
 
     lines
 }
@@ -574,6 +578,9 @@ pub struct Config {
     ///
     /// This is useful if the code examples are not valid rust code.
     pub strip_code_examples: bool,
+
+    /// Generate custom trait implementations for representations
+    pub generate_representation_traits: Option<Box<dyn Fn(&str, &RepresentationDef, &Config) -> Option<Vec<String>>>>,
 }
 
 pub fn generate(app: &Application, config: &Config) -> String {
