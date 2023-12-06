@@ -130,7 +130,7 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                         ret_type = format!("Option<{}>", ret_type);
                     }
                     lines.push(format!(
-                        "    pub fn {}(&self) -> Result<{}, Error> {{\n",
+                        "    pub fn {}(&self) -> {} {{\n",
                         accessor_name, ret_type
                     ));
                     lines.push("        struct MyResource(url::Url);\n".to_string());
@@ -138,12 +138,12 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                     lines.push(format!("        impl {} for MyResource {{}}\n", field_type));
                     if param.required {
                         lines.push(format!(
-                            "        Ok(Box::new(MyResource(self.{}.clone())))\n",
+                            "        Box::new(MyResource(self.{}.clone()))\n",
                             field_name
                         ));
                     } else {
                         lines.push(format!(
-                        "        Ok(self.{}.as_ref().map(|x| Box::new(MyResource(x.clone())) as Box<dyn {}>))\n",
+                        "        self.{}.as_ref().map(|x| Box::new(MyResource(x.clone())) as Box<dyn {}>)\n",
                         field_name, field_type
                     ));
                     }
@@ -333,7 +333,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         .unwrap_or(name);
     let name = snake_case_name(name);
 
-    let mut line = format!("    fn {}(&self", name);
+    let mut line = format!("    fn {}(&self, client: &dyn wadl::Client", name);
 
     let mut params = input.request.params.iter().collect::<Vec<_>>();
 
@@ -514,7 +514,6 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
     }
 
     lines.push("\n".to_string());
-    lines.push("        let client = reqwest::blocking::Client::new();\n".to_string());
     lines.push("        let resp = client.execute(req)?.error_for_status()?;\n".to_string());
     lines.push("        Ok(resp.json()?)\n".to_string());
     lines.push("    }\n".to_string());

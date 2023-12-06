@@ -13,6 +13,22 @@ use url::Url;
 pub trait Resource {
     /// The URL of the root of the web service.
     fn url(&self) -> Url;
+
+    fn client(&self) -> reqwest::Client {
+        reqwest::Client::new()
+    }
+}
+
+pub trait Client {
+    fn execute(&self, req: reqwest::blocking::Request,
+    ) -> Result<reqwest::blocking::Response, reqwest::Error>;
+}
+
+impl Client for reqwest::blocking::Client {
+    fn execute(&self, req: reqwest::blocking::Request,
+    ) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        self.execute(req)
+    }
 }
 
 #[derive(Debug)]
