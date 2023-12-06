@@ -59,7 +59,7 @@ fn test_snake_case_name() {
     assert_eq!(snake_case_name("_FooBar"), "_foo_bar");
 }
 
-fn strip_python_examples(input: String) -> String {
+fn strip_code_examples(input: String) -> String {
     let mut in_example = false;
     input.lines().filter(|line| {
         if !in_example && (line.starts_with("```python") || *line == "```") {
@@ -72,12 +72,18 @@ fn strip_python_examples(input: String) -> String {
     }).collect::<Vec<_>>().join("\n")
 }
 
-fn format_doc(input: &Doc) -> String {
+fn format_doc(input: &Doc, config: &Config) -> String {
     match input.xmlns.as_ref().map(|x| x.as_str()) {
-        Some("http://www.w3.org/1999/xhtml") => strip_python_examples(html2md::parse_html(&input.content))
+        Some("http://www.w3.org/1999/xhtml") => {
+            let mut text = html2md::parse_html(&input.content);
+            if config.strip_code_examples {
+                text = strip_code_examples(text);
+            }
+            text
             .lines()
             .collect::<Vec<_>>()
-            .join("\n"),
+            .join("\n")
+        },
         Some(xmlns) => {
             log::warn!("Unknown xmlns: {}", xmlns);
             input.content.lines().collect::<Vec<_>>().join("\n")
@@ -86,14 +92,14 @@ fn format_doc(input: &Doc) -> String {
     }
 }
 
-fn generate_doc(input: &Doc, indent: usize) -> Vec<String> {
+fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
 
     if let Some(title) = input.title.as_ref() {
         lines.extend(vec![format!("/// # {}\n", title.trim_end_matches(' ')), "///\n".to_string()]);
     }
 
-    let text = format_doc(input);
+    let text = format_doc(input, config);
 
     lines.extend(text.lines().map(|line| format!("/// {}\n", line.trim_end_matches(' '))));
     if indent > 0 {
@@ -108,7 +114,7 @@ fn generate_doc(input: &Doc, indent: usize) -> Vec<String> {
 fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<String> {
     let mut lines = vec![];
     for doc in &input.docs {
-        lines.extend(generate_doc(doc, 0));
+        lines.extend(generate_doc(doc, 0, config));
     }
 
     if input.media_type == Some(mime::APPLICATION_JSON) {
@@ -135,7 +141,7 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
             TypeRef::ResourceType(r) => {
                 if let Some(id) = r.id() {
                     for doc in &param.doc {
-                        lines.extend(generate_doc(doc, 1));
+                        lines.extend(generate_doc(doc, 1, config));
                     }
                     let field_type = camel_case_name(id);
                     let mut ret_type = format!("Box<dyn {}>", field_type);
@@ -363,7 +369,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
     );
 
     for doc in &input.docs {
-        lines.extend(generate_doc(doc, 1));
+        lines.extend(generate_doc(doc, 1, config));
     }
 
     if !params.is_empty() {
@@ -384,7 +390,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         line.push_str(format!(", {}: {}", param_name, param_type).as_str());
 
         if let Some(doc) = param.doc.as_ref() {
-            let doc = format_doc(doc);
+            let doc = format_doc(doc, config);
             let mut doc_lines = doc
                 .trim_start_matches('\n')
                 .split('\n')
@@ -539,7 +545,7 @@ pub fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<Stri
     let mut lines = vec![];
 
     for doc in &input.docs {
-        lines.extend(generate_doc(doc, 0));
+        lines.extend(generate_doc(doc, 0, config));
     }
 
     let name = input.id.as_str();
@@ -563,13 +569,18 @@ pub struct Config {
 
     /// Support renaming param accessor functions
     pub param_accessor_rename: Option<Box<dyn Fn(&str) -> Option<String>>>,
+
+    /// Whether to strip code examples from the docstrings
+    ///
+    /// This is useful if the code examples are not valid rust code.
+    pub strip_code_examples: bool,
 }
 
 pub fn generate(app: &Application, config: &Config) -> String {
     let mut lines = vec![];
 
     for doc in &app.docs {
-        lines.extend(generate_doc(doc, 0));
+        lines.extend(generate_doc(doc, 0, config));
     }
 
     for representation in &app.representations {
