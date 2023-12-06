@@ -59,9 +59,22 @@ fn test_snake_case_name() {
     assert_eq!(snake_case_name("_FooBar"), "_foo_bar");
 }
 
+fn strip_python_examples(input: String) -> String {
+    let mut in_example = false;
+    input.lines().filter(|line| {
+        if !in_example && (line.starts_with("```python") || *line == "```") {
+            in_example = true;
+            false
+        } else if line.starts_with("```") {
+            in_example = false;
+            false
+        } else { !in_example }
+    }).collect::<Vec<_>>().join("\n")
+}
+
 fn format_doc(input: &Doc) -> String {
     match input.xmlns.as_ref().map(|x| x.as_str()) {
-        Some("http://www.w3.org/1999/xhtml") => html2md::parse_html(&input.content)
+        Some("http://www.w3.org/1999/xhtml") => strip_python_examples(html2md::parse_html(&input.content))
             .lines()
             .collect::<Vec<_>>()
             .join("\n"),
