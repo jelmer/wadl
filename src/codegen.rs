@@ -145,6 +145,12 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                     }
                     let field_type = camel_case_name(id);
                     let mut ret_type = format!("Box<dyn {}>", field_type);
+                    let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_accessor.as_ref().and_then(|x| x(field_type.as_str())) {
+                        ret_type = map_type;
+                        Some(map_fn)
+                    } else {
+                        None
+                    };
                     if !param.required {
                         ret_type = format!("Option<{}>", ret_type);
                     }
@@ -161,14 +167,21 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                     lines.push("        impl Resource for MyResource { fn url(&self) -> url::Url { self.0.clone() } }\n".to_string());
                     lines.push(format!("        impl {} for MyResource {{}}\n", field_type));
                     if param.required {
-                        lines.push(format!(
-                            "        Box::new(MyResource(self.{}.clone()))\n",
-                            field_name
-                        ));
+                        if let Some(map_fn) = map_fn {
+                            lines.push(format!(
+                                "        {}(Box::new(MyResource(self.{}.clone()) as Box<dyn {}>))\n",
+                                map_fn, field_name, field_type
+                            ));
+                        } else {
+                            lines.push(format!(
+                                "        Box::new(MyResource(self.{}.clone()))\n",
+                                field_name
+                            ));
+                        }
                     } else {
                         lines.push(format!(
-                        "        self.{}.as_ref().map(|x| Box::new(MyResource(x.clone())) as Box<dyn {}>)\n",
-                        field_name, field_type
+                        "        self.{}.as_ref().map(|x| Box::new(MyResource(x.clone())) as Box<dyn {}>){}\n",
+                        field_name, field_type, if let Some(map_fn) = map_fn { format!(".map({})", map_fn) } else { "".to_string() }
                     ));
                     }
                     lines.push("    }\n".to_string());
@@ -353,6 +366,31 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
     }
 }
 
+pub fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(doc) = doc.as_ref() {
+        let doc = format_doc(doc, config);
+        let mut doc_lines = doc
+            .trim_start_matches('\n')
+            .split('\n')
+            .collect::<Vec<_>>()
+            .into_iter();
+        lines.push(format!(
+            "    /// * `{}`: {}\n",
+            name,
+            doc_lines.next().unwrap().trim_end_matches(' ')
+        ));
+        for doc_line in doc_lines {
+            lines.push(format!("    ///     {}\n", doc_line.trim_end_matches(' ')));
+        }
+    } else {
+        lines.push(format!("    /// * `{}`\n", name));
+    }
+
+    lines
+}
+
+
 pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<String> {
     let mut lines = vec![];
 
@@ -386,6 +424,16 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         lines.push("    /// # Arguments\n".to_string());
     }
 
+    for representation in &input.request.representations {
+        match representation {
+            Representation::Definition(d) => {},
+            Representation::Reference(r) => {
+                let id = camel_case_name(r.id().unwrap());
+                line.push_str(format!(", representation: &{}", id).as_str());
+            }
+        }
+    }
+
     for param in &params {
         if param.fixed.is_some() {
             continue;
@@ -399,32 +447,24 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
 
         line.push_str(format!(", {}: {}", param_name, param_type).as_str());
 
-        if let Some(doc) = param.doc.as_ref() {
-            let doc = format_doc(doc, config);
-            let mut doc_lines = doc
-                .trim_start_matches('\n')
-                .split('\n')
-                .collect::<Vec<_>>()
-                .into_iter();
-            lines.push(format!(
-                "    /// * `{}`: {}\n",
-                param_name,
-                doc_lines.next().unwrap().trim_end_matches(' ')
-            ));
-            for doc_line in doc_lines {
-                lines.push(format!("    ///     {}\n", doc_line.trim_end_matches(' ')));
-            }
-        } else {
-            lines.push(format!("    /// * `{}`\n", param_name));
-        }
+        lines.extend(format_arg_doc(param_name.as_str(), param.doc.as_ref(), config));
     }
     line.push_str(") -> Result<");
-    if input.responses.is_empty() {
+    let map_fn = if input.responses.is_empty() {
         line.push_str("()");
+        None
     } else {
         assert_eq!(1, input.responses.len(), "expected 1 response for {}", name);
-        line.push_str(rust_type_for_response(&input.responses[0], input.id.as_str()).as_str());
-    }
+        let mut return_type = rust_type_for_response(&input.responses[0], input.id.as_str());
+        let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_response.as_ref().and_then(|r| r(&return_type)) {
+            return_type = map_type;
+            Some(map_fn)
+        } else {
+            None
+        };
+        line.push_str(return_type.as_str());
+        map_fn
+    };
 
     line.push_str(", Error> {\n");
     lines.push(line);
@@ -495,6 +535,19 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         method
     ));
 
+    for representation in &input.request.representations {
+        match representation {
+            Representation::Definition(d) => { }
+            Representation::Reference(r) => {
+                lines.push(format!("        let body = serde_json::to_string(&representation)?;\n"));
+                // TODO(jelmer): Support non-JSON representations
+                lines.push(format!("        req.headers_mut().insert(reqwest::header::CONTENT_TYPE, \"application/json\".parse().unwrap());\n"));
+                lines.push(format!("        req.headers_mut().insert(reqwest::header::CONTENT_LENGTH, body.len().to_string().parse().unwrap());\n"));
+                lines.push(format!("        req.body(body);\n"));
+            }
+        }
+    }
+
     let mime_types = input
         .responses
         .iter()
@@ -545,8 +598,11 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
     lines.push("\n".to_string());
     lines.push("        let resp = client.execute(req)?.error_for_status()?;\n".to_string());
     lines.push("        let text = resp.text()?;\n".to_string());
-    lines.push("         eprintln!(\"{}\", text);\n".to_string());
-    lines.push("        serde_json::from_str(&text).map_err(|e| Error::Json(e))\n".to_string());
+    lines.push(format!("        serde_json::from_str(&text).map_err(|e| Error::Json(e)){}\n", if let Some(map_fn) = map_fn {
+        format!(".map({})", map_fn)
+    } else {
+        "".to_string()
+    }));
     lines.push("    }\n".to_string());
     lines.push("\n".to_string());
 
@@ -601,6 +657,12 @@ pub struct Config {
 
     /// Return the visibility of a resource type
     pub resource_type_visibility: Option<Box<dyn Fn(&str) -> Option<String>>>,
+
+    /// Map a method response type to a different type and a function to map the response
+    pub map_type_for_response: Option<Box<dyn Fn(&str) -> Option<(String, String)>>>,
+
+    /// Map an accessor function name to a different type
+    pub map_type_for_accessor: Option<Box<dyn Fn(&str) -> Option<(String, String)>>>,
 }
 
 pub fn generate(app: &Application, config: &Config) -> String {
