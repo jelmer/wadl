@@ -148,9 +148,14 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                     if !param.required {
                         ret_type = format!("Option<{}>", ret_type);
                     }
+                    let visibility = config.accessor_visibility.as_ref().and_then(|x| x(accessor_name.as_str(), field_type.as_str())).unwrap_or_else(|| "pub".to_string());
                     lines.push(format!(
-                        "    pub fn {}(&self) -> {} {{\n",
-                        accessor_name, ret_type
+                        "    {}fn {}(&self) -> {} {{\n",
+                        if visibility.is_empty() {
+                            "".to_string()
+                        } else {
+                            format!("{} ", visibility)
+                        }, accessor_name, ret_type
                     ));
                     lines.push("        struct MyResource(url::Url);\n".to_string());
                     lines.push("        impl Resource for MyResource { fn url(&self) -> url::Url { self.0.clone() } }\n".to_string());
@@ -197,6 +202,7 @@ fn param_rust_type(param: &Param, config: &Config) -> (String, Vec<String>) {
             "binary" => ("Vec<u8>".to_string(), vec![]),
             u => panic!("Unknown type: {}", u),
         },
+        // TODO: Return the actual type, not a URL
         TypeRef::ResourceType(_) => ("url::Url".to_string(), vec![]),
         TypeRef::Options(_options) => {
             // TODO: define an enum for this
@@ -538,14 +544,16 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
 
     lines.push("\n".to_string());
     lines.push("        let resp = client.execute(req)?.error_for_status()?;\n".to_string());
-    lines.push("        Ok(resp.json()?)\n".to_string());
+    lines.push("        let text = resp.text()?;\n".to_string());
+    lines.push("         eprintln!(\"{}\", text);\n".to_string());
+    lines.push("        serde_json::from_str(&text).map_err(|e| Error::Json(e))\n".to_string());
     lines.push("    }\n".to_string());
     lines.push("\n".to_string());
 
     lines
 }
 
-pub fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<String> {
+fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<String> {
     let mut lines = vec![];
 
     for doc in &input.docs {
@@ -555,7 +563,13 @@ pub fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<Stri
     let name = input.id.as_str();
     let name = camel_case_name(name);
 
-    lines.push(format!("pub trait {} : Resource {{\n", name));
+    let visibility = config.resource_type_visibility.as_ref().and_then(|x| x(name.as_str())).unwrap_or("pub".to_string());
+
+    lines.push(format!("{}trait {} : Resource {{\n", if visibility.is_empty() {
+        "".to_string()
+    } else {
+        format!("{} ", visibility)
+    }, name));
 
     for method in &input.methods {
         lines.extend(generate_method(method, input.id.as_str(), config));
@@ -581,6 +595,12 @@ pub struct Config {
 
     /// Generate custom trait implementations for representations
     pub generate_representation_traits: Option<Box<dyn Fn(&str, &RepresentationDef, &Config) -> Option<Vec<String>>>>,
+
+    /// Return the visibility of a representation accessor
+    pub accessor_visibility: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
+
+    /// Return the visibility of a resource type
+    pub resource_type_visibility: Option<Box<dyn Fn(&str) -> Option<String>>>,
 }
 
 pub fn generate(app: &Application, config: &Config) -> String {
