@@ -381,7 +381,11 @@ pub fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config
             doc_lines.next().unwrap().trim_end_matches(' ')
         ));
         for doc_line in doc_lines {
-            lines.push(format!("    ///     {}\n", doc_line.trim_end_matches(' ')));
+            if doc_line.is_empty() {
+                lines.push("    ///\n".to_string());
+            } else {
+                lines.push(format!("    ///     {}\n", doc_line.trim_end_matches(' ')));
+            }
         }
     } else {
         lines.push(format!("    /// * `{}`\n", name));
