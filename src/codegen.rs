@@ -275,7 +275,10 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
     lines.push(
         "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n".to_string(),
     );
-    lines.push(format!("pub struct {} {{\n", name));
+
+    let visibility = config.representation_visibility.as_ref().and_then(|x| x(name.as_str())).unwrap_or_else(|| "pub".to_string());
+
+    lines.push(format!("{}struct {} {{\n", if visibility.is_empty() { "".to_string() } else { format!("{} ", visibility) }, name));
 
     for param in &input.params {
         let mut param_name = snake_case_name(param.name.as_str());
@@ -678,6 +681,9 @@ pub struct Config {
 
     /// Generate custom trait implementations for representations
     pub generate_representation_traits: Option<Box<dyn Fn(&str, &RepresentationDef, &Config) -> Option<Vec<String>>>>,
+
+    /// Return the visibility of a representation
+    pub representation_visibility: Option<Box<dyn Fn(&str) -> Option<String>>>,
 
     /// Return the visibility of a representation accessor
     pub accessor_visibility: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
