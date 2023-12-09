@@ -111,6 +111,89 @@ fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> {
     lines
 }
 
+fn generate_resource_type_ref_accessors(field_name: &str, input: &ResourceTypeRef, param: &Param, config: &Config) -> Vec<String> {
+    let mut lines = vec![];
+    if let Some(id) = input.id() {
+        let deprecated = config.deprecated_param.as_ref().map(|x| x(param)).unwrap_or(false);
+        for doc in &param.doc {
+            lines.extend(generate_doc(doc, 1, config));
+        }
+        let field_type = camel_case_name(id);
+        let mut ret_type = field_type.to_string();
+        let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_accessor.as_ref().and_then(|x| x(field_type.as_str())) {
+            ret_type = map_type;
+            Some(map_fn)
+        } else {
+            None
+        };
+        if !param.required {
+            ret_type = format!("Option<{}>", ret_type);
+        }
+        let accessor_name = if let Some(rename_fn) = config.param_accessor_rename.as_ref() {
+            rename_fn(param.name.as_str(), ret_type.as_str())
+        } else {
+            None
+        }
+        .unwrap_or_else(|| field_name.to_string());
+
+        let visibility = config.accessor_visibility.as_ref().and_then(|x| x(accessor_name.as_str(), field_type.as_str())).unwrap_or_else(|| "pub".to_string());
+        if deprecated {
+            lines.push("    #[deprecated]".to_string());
+        }
+        lines.push(format!(
+            "    {}fn {}(&self) -> {} {{\n",
+            if visibility.is_empty() {
+                "".to_string()
+            } else {
+                format!("{} ", visibility)
+            }, accessor_name, ret_type
+        ));
+        if param.required {
+            if let Some(map_fn) = map_fn {
+                lines.push(format!(
+                    "        {}({}(self.{}.clone())\n",
+                    map_fn, field_type, field_name
+                ));
+            } else {
+                lines.push(format!(
+                    "        {}(self.{}.clone())\n",
+                    field_type, field_name
+                ));
+            }
+        } else {
+            lines.push(format!(
+            "        self.{}.as_ref().map(|x| {}(x.clone())){}\n",
+            field_name, field_type, if let Some(map_fn) = map_fn { format!(".map({})", map_fn) } else { "".to_string() }
+        ));
+        }
+        lines.push("    }\n".to_string());
+        lines.push("\n".to_string());
+
+        if deprecated {
+            lines.push("    #[deprecated]".to_string());
+        }
+
+        lines.push(format!("    {}fn set_{}(&mut self, value: {}) {{\n", if visibility.is_empty() {
+            "".to_string()
+        } else {
+            format!("{} ", visibility)
+        }, accessor_name, ret_type));
+
+        if param.required {
+            lines.push(format!("        self.{} = value.url().clone();\n", field_name));
+        } else {
+            lines.push(format!("        self.{} = value.map(|x| x.url().clone());\n", field_name));
+        }
+        lines.push("    }\n".to_string());
+
+
+        if let Some(extend_accessor) = config.extend_accessor.as_ref() {
+            lines.extend(extend_accessor(accessor_name.as_str(), ret_type.as_str()));
+        }
+    }
+    lines
+}
+
 fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<String> {
     let mut lines = vec![];
     for doc in &input.docs {
@@ -134,63 +217,7 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
         #[allow(clippy::single_match)]
         match &param.r#type {
             TypeRef::ResourceType(r) => {
-                if let Some(id) = r.id() {
-                    for doc in &param.doc {
-                        lines.extend(generate_doc(doc, 1, config));
-                    }
-                    let field_type = camel_case_name(id);
-                    let mut ret_type = field_type.to_string();
-                    let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_accessor.as_ref().and_then(|x| x(field_type.as_str())) {
-                        ret_type = map_type;
-                        Some(map_fn)
-                    } else {
-                        None
-                    };
-                    if !param.required {
-                        ret_type = format!("Option<{}>", ret_type);
-                    }
-                    let accessor_name = if let Some(rename_fn) = config.param_accessor_rename.as_ref() {
-                        rename_fn(param.name.as_str(), ret_type.as_str())
-                    } else {
-                        None
-                    }
-                    .unwrap_or_else(|| field_name.to_string());
-
-
-                    let visibility = config.accessor_visibility.as_ref().and_then(|x| x(accessor_name.as_str(), field_type.as_str())).unwrap_or_else(|| "pub".to_string());
-                    lines.push(format!(
-                        "    {}fn {}(&self) -> {} {{\n",
-                        if visibility.is_empty() {
-                            "".to_string()
-                        } else {
-                            format!("{} ", visibility)
-                        }, accessor_name, ret_type
-                    ));
-                    if param.required {
-                        if let Some(map_fn) = map_fn {
-                            lines.push(format!(
-                                "        {}({}(self.{}.clone())\n",
-                                map_fn, field_type, field_name
-                            ));
-                        } else {
-                            lines.push(format!(
-                                "        {}(self.{}.clone())\n",
-                                field_type, field_name
-                            ));
-                        }
-                    } else {
-                        lines.push(format!(
-                        "        self.{}.as_ref().map(|x| {}(x.clone())){}\n",
-                        field_name, field_type, if let Some(map_fn) = map_fn { format!(".map({})", map_fn) } else { "".to_string() }
-                    ));
-                    }
-                    lines.push("    }\n".to_string());
-                    lines.push("\n".to_string());
-
-                    if let Some(extend_accessor) = config.extend_accessor.as_ref() {
-                        lines.extend(extend_accessor(accessor_name.as_str(), ret_type.as_str()));
-                    }
-                }
+                lines.extend(generate_resource_type_ref_accessors(&field_name, r, param, config));
             }
             _ => {}
         }
@@ -281,10 +308,6 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
     lines.push(format!("{}struct {} {{\n", if visibility.is_empty() { "".to_string() } else { format!("{} ", visibility) }, name));
 
     for param in &input.params {
-        for doc in &param.doc {
-            lines.extend(generate_doc(doc, 1, config));
-        }
-
         let mut param_name = snake_case_name(param.name.as_str());
 
         if ["type", "move"].contains(&param_name.as_str()) {
@@ -306,6 +329,10 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
         let is_pub = !matches!(&param.r#type, TypeRef::ResourceType(_));
 
         lines.push(format!("    // {}\n", comment));
+        for doc in &param.doc {
+            lines.extend(generate_doc(doc, 1, config));
+        }
+
         for ann in annotations {
             lines.push(format!("    {}\n", ann));
         }
@@ -708,6 +735,9 @@ pub struct Config {
     pub extend_method: Option<Box<dyn Fn(&str, &str, &str) -> Vec<String>>>,
 
     pub method_visibility: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
+
+    /// Return whether a param is deprecated
+    pub deprecated_param: Option<Box<dyn Fn(&Param) -> bool>>,
 }
 
 pub fn generate(app: &Application, config: &Config) -> String {
