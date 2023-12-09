@@ -130,13 +130,6 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
 
     for param in &input.params {
         let field_name = snake_case_name(param.name.as_str());
-        let accessor_name = if let Some(rename_fn) = config.param_accessor_rename.as_ref() {
-            rename_fn(param.name.as_str())
-        } else {
-            None
-        }
-        .unwrap_or_else(|| field_name.to_string());
-
         // We expect to support multiple types here in the future
         #[allow(clippy::single_match)]
         match &param.r#type {
@@ -156,6 +149,14 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                     if !param.required {
                         ret_type = format!("Option<{}>", ret_type);
                     }
+                    let accessor_name = if let Some(rename_fn) = config.param_accessor_rename.as_ref() {
+                        rename_fn(param.name.as_str(), ret_type.as_str())
+                    } else {
+                        None
+                    }
+                    .unwrap_or_else(|| field_name.to_string());
+
+
                     let visibility = config.accessor_visibility.as_ref().and_then(|x| x(accessor_name.as_str(), field_type.as_str())).unwrap_or_else(|| "pub".to_string());
                     lines.push(format!(
                         "    {}fn {}(&self) -> {} {{\n",
@@ -412,7 +413,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         .unwrap_or(name);
     let name = snake_case_name(name);
 
-    let mut line = format!("    fn {}(&self, client: &dyn wadl::Client", name);
+    let mut line = format!("    fn {}<'a>(&self, client: &'a dyn wadl::Client", name);
 
     let mut params = input.request.params.iter().collect::<Vec<_>>();
 
@@ -462,21 +463,20 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         lines.extend(format_arg_doc(param_name.as_str(), param.doc.as_ref(), config));
     }
     line.push_str(") -> Result<");
-    let map_fn = if input.responses.is_empty() {
-        line.push_str("()");
-        None
+    let (ret_type, map_fn) = if input.responses.is_empty() {
+        ("()".to_string(), None)
     } else {
         assert_eq!(1, input.responses.len(), "expected 1 response for {}", name);
         let mut return_type = rust_type_for_response(&input.responses[0], input.id.as_str());
-        let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_response.as_ref().and_then(|r| r(&return_type)) {
+        let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_response.as_ref().and_then(|r| r(&name, &return_type)) {
             return_type = map_type;
             Some(map_fn)
         } else {
             None
         };
-        line.push_str(return_type.as_str());
-        map_fn
+        (return_type, map_fn)
     };
+    line.push_str(ret_type.as_str());
 
     line.push_str(", Error> {\n");
     lines.push(line);
@@ -618,6 +618,10 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
     lines.push("    }\n".to_string());
     lines.push("\n".to_string());
 
+    if let Some(extend_method) = config.extend_method.as_ref() {
+        lines.extend(extend_method(&name, &ret_type));
+    }
+
     lines
 }
 
@@ -655,7 +659,7 @@ pub struct Config {
     pub guess_type_name: Option<Box<dyn Fn(&str) -> Option<String>>>,
 
     /// Support renaming param accessor functions
-    pub param_accessor_rename: Option<Box<dyn Fn(&str) -> Option<String>>>,
+    pub param_accessor_rename: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
 
     /// Whether to strip code examples from the docstrings
     ///
@@ -672,13 +676,16 @@ pub struct Config {
     pub resource_type_visibility: Option<Box<dyn Fn(&str) -> Option<String>>>,
 
     /// Map a method response type to a different type and a function to map the response
-    pub map_type_for_response: Option<Box<dyn Fn(&str) -> Option<(String, String)>>>,
+    pub map_type_for_response: Option<Box<dyn Fn(&str, &str) -> Option<(String, String)>>>,
 
     /// Map an accessor function name to a different type
     pub map_type_for_accessor: Option<Box<dyn Fn(&str) -> Option<(String, String)>>>,
 
     /// Extend the generated accessor
     pub extend_accessor: Option<Box<dyn Fn(&'_ str, &'_ str ) -> Vec<String>>>,
+
+    /// Extend the generated method
+    pub extend_method: Option<Box<dyn Fn(&str, &str) -> Vec<String>>>,
 }
 
 pub fn generate(app: &Application, config: &Config) -> String {
