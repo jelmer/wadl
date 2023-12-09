@@ -92,7 +92,7 @@ fn format_doc(input: &Doc, config: &Config) -> String {
     }
 }
 
-fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> {
+pub fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
 
     if let Some(title) = input.title.as_ref() {
@@ -188,7 +188,7 @@ fn generate_resource_type_ref_accessors(field_name: &str, input: &ResourceTypeRe
 
 
         if let Some(extend_accessor) = config.extend_accessor.as_ref() {
-            lines.extend(extend_accessor(accessor_name.as_str(), ret_type.as_str()));
+            lines.extend(extend_accessor(param, accessor_name.as_str(), ret_type.as_str(), config));
         }
     }
     lines
@@ -653,7 +653,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
     lines.push("\n".to_string());
 
     if let Some(extend_method) = config.extend_method.as_ref() {
-        lines.extend(extend_method(parent_id, &name, &ret_type));
+        lines.extend(extend_method(parent_id, &name, &ret_type, config));
     }
 
     lines
@@ -729,10 +729,10 @@ pub struct Config {
     pub map_type_for_accessor: Option<Box<dyn Fn(&str) -> Option<(String, String)>>>,
 
     /// Extend the generated accessor
-    pub extend_accessor: Option<Box<dyn Fn(&'_ str, &'_ str ) -> Vec<String>>>,
+    pub extend_accessor: Option<Box<dyn Fn(&Param, &'_ str, &'_ str, &Config) -> Vec<String>>>,
 
     /// Extend the generated method
-    pub extend_method: Option<Box<dyn Fn(&str, &str, &str) -> Vec<String>>>,
+    pub extend_method: Option<Box<dyn Fn(&str, &str, &str, &Config) -> Vec<String>>>,
 
     pub method_visibility: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
 
