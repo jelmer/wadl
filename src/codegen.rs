@@ -139,7 +139,7 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                         lines.extend(generate_doc(doc, 1, config));
                     }
                     let field_type = camel_case_name(id);
-                    let mut ret_type = format!("Box<{}>", field_type);
+                    let mut ret_type = field_type.to_string();
                     let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_accessor.as_ref().and_then(|x| x(field_type.as_str())) {
                         ret_type = map_type;
                         Some(map_fn)
@@ -169,18 +169,18 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                     if param.required {
                         if let Some(map_fn) = map_fn {
                             lines.push(format!(
-                                "        {}(Box::new({}(self.{}.clone()))\n",
+                                "        {}({}(self.{}.clone())\n",
                                 map_fn, field_type, field_name
                             ));
                         } else {
                             lines.push(format!(
-                                "        Box::new({}(self.{}.clone()))\n",
+                                "        {}(self.{}.clone())\n",
                                 field_type, field_name
                             ));
                         }
                     } else {
                         lines.push(format!(
-                        "        self.{}.as_ref().map(|x| Box::new({}(x.clone()))){}\n",
+                        "        self.{}.as_ref().map(|x| {}(x.clone())){}\n",
                         field_name, field_type, if let Some(map_fn) = map_fn { format!(".map({})", map_fn) } else { "".to_string() }
                     ));
                     }
@@ -200,7 +200,7 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
     lines.push("\n".to_string());
 
     if let Some(generate) = config.generate_representation_traits.as_ref() {
-        lines.extend(generate(name.as_str(), input, config).unwrap_or(vec![]));
+        lines.extend(generate(input, name.as_str(), input, config).unwrap_or(vec![]));
     }
 
     lines
@@ -281,6 +281,10 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
     lines.push(format!("{}struct {} {{\n", if visibility.is_empty() { "".to_string() } else { format!("{} ", visibility) }, name));
 
     for param in &input.params {
+        for doc in &param.doc {
+            lines.extend(generate_doc(doc, 1, config));
+        }
+
         let mut param_name = snake_case_name(param.name.as_str());
 
         if ["type", "move"].contains(&param_name.as_str()) {
@@ -680,7 +684,7 @@ pub struct Config {
     pub strip_code_examples: bool,
 
     /// Generate custom trait implementations for representations
-    pub generate_representation_traits: Option<Box<dyn Fn(&str, &RepresentationDef, &Config) -> Option<Vec<String>>>>,
+    pub generate_representation_traits: Option<Box<dyn Fn(&RepresentationDef, &str, &RepresentationDef, &Config) -> Option<Vec<String>>>>,
 
     /// Return the visibility of a representation
     pub representation_visibility: Option<Box<dyn Fn(&str) -> Option<String>>>,

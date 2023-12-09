@@ -11,12 +11,8 @@ use url::Url;
 
 /// The root of the web service.
 pub trait Resource {
-    /// The URL of the root of the web service.
+    /// The URL of the resource
     fn url(&self) -> &Url;
-
-    fn client(&self) -> reqwest::Client {
-        reqwest::Client::new()
-    }
 }
 
 pub trait Client {
