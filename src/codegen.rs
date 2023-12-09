@@ -139,7 +139,7 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                         lines.extend(generate_doc(doc, 1, config));
                     }
                     let field_type = camel_case_name(id);
-                    let mut ret_type = format!("Box<dyn {}>", field_type);
+                    let mut ret_type = format!("Box<{}>", field_type);
                     let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_accessor.as_ref().and_then(|x| x(field_type.as_str())) {
                         ret_type = map_type;
                         Some(map_fn)
@@ -166,24 +166,21 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                             format!("{} ", visibility)
                         }, accessor_name, ret_type
                     ));
-                    lines.push("        struct MyResource(url::Url);\n".to_string());
-                    lines.push("        impl Resource for MyResource { fn url(&self) -> url::Url { self.0.clone() } }\n".to_string());
-                    lines.push(format!("        impl {} for MyResource {{}}\n", field_type));
                     if param.required {
                         if let Some(map_fn) = map_fn {
                             lines.push(format!(
-                                "        {}(Box::new(MyResource(self.{}.clone()) as Box<dyn {}>))\n",
-                                map_fn, field_name, field_type
+                                "        {}(Box::new({}(self.{}.clone()))\n",
+                                map_fn, field_type, field_name
                             ));
                         } else {
                             lines.push(format!(
-                                "        Box::new(MyResource(self.{}.clone()))\n",
-                                field_name
+                                "        Box::new({}(self.{}.clone()))\n",
+                                field_type, field_name
                             ));
                         }
                     } else {
                         lines.push(format!(
-                        "        self.{}.as_ref().map(|x| Box::new(MyResource(x.clone())) as Box<dyn {}>){}\n",
+                        "        self.{}.as_ref().map(|x| Box::new({}(x.clone()))){}\n",
                         field_name, field_type, if let Some(map_fn) = map_fn { format!(".map({})", map_fn) } else { "".to_string() }
                     ));
                     }
@@ -413,7 +410,23 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         .unwrap_or(name);
     let name = snake_case_name(name);
 
-    let mut line = format!("    fn {}<'a>(&self, client: &'a dyn wadl::Client", name);
+    let (ret_type, map_fn) = if input.responses.is_empty() {
+        ("()".to_string(), None)
+    } else {
+        assert_eq!(1, input.responses.len(), "expected 1 response for {}", name);
+        let mut return_type = rust_type_for_response(&input.responses[0], input.id.as_str());
+        let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_response.as_ref().and_then(|r| r(&name, &return_type)) {
+            return_type = map_type;
+            Some(map_fn)
+        } else {
+            None
+        };
+        (return_type, map_fn)
+    };
+
+    let visibility = config.method_visibility.as_ref().and_then(|x| x(&name, &ret_type)).unwrap_or("pub".to_string());
+
+    let mut line = format!("    {}fn {}<'a>(&self, client: &'a dyn wadl::Client", if visibility.is_empty() { "".to_string() } else { format!("{} ", visibility) }, name);
 
     let mut params = input.request.params.iter().collect::<Vec<_>>();
 
@@ -463,19 +476,6 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         lines.extend(format_arg_doc(param_name.as_str(), param.doc.as_ref(), config));
     }
     line.push_str(") -> Result<");
-    let (ret_type, map_fn) = if input.responses.is_empty() {
-        ("()".to_string(), None)
-    } else {
-        assert_eq!(1, input.responses.len(), "expected 1 response for {}", name);
-        let mut return_type = rust_type_for_response(&input.responses[0], input.id.as_str());
-        let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_response.as_ref().and_then(|r| r(&name, &return_type)) {
-            return_type = map_type;
-            Some(map_fn)
-        } else {
-            None
-        };
-        (return_type, map_fn)
-    };
     line.push_str(ret_type.as_str());
 
     line.push_str(", Error> {\n");
@@ -487,7 +487,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         .iter()
         .all(|p| [ParamStyle::Header, ParamStyle::Query].contains(&p.style)));
 
-    lines.push("        let mut url_ = self.url();\n".to_string());
+    lines.push("        let mut url_ = self.url().clone();\n".to_string());
     for param in params.iter().filter(|p| p.style == ParamStyle::Query) {
         if let Some(fixed) = param.fixed.as_ref() {
             assert!(!param.repeating);
@@ -619,7 +619,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
     lines.push("\n".to_string());
 
     if let Some(extend_method) = config.extend_method.as_ref() {
-        lines.extend(extend_method(&name, &ret_type));
+        lines.extend(extend_method(parent_id, &name, &ret_type));
     }
 
     lines
@@ -637,16 +637,26 @@ fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<String> 
 
     let visibility = config.resource_type_visibility.as_ref().and_then(|x| x(name.as_str())).unwrap_or("pub".to_string());
 
-    lines.push(format!("{}trait {} : Resource {{\n", if visibility.is_empty() {
+    lines.push(format!("{}struct {} (reqwest::Url);\n", if visibility.is_empty() {
         "".to_string()
     } else {
         format!("{} ", visibility)
     }, name));
 
+    lines.push("\n".to_string());
+
+    lines.push(format!("impl {} {{\n", name));
+
     for method in &input.methods {
         lines.extend(generate_method(method, input.id.as_str(), config));
     }
 
+    lines.push("}\n".to_string());
+    lines.push("\n".to_string());
+    lines.push(format!("impl Resource for {} {{\n", name));
+    lines.push("    fn url(&self) -> &reqwest::Url {\n".to_string());
+    lines.push("        &self.0\n".to_string());
+    lines.push("    }\n".to_string());
     lines.push("}\n".to_string());
     lines.push("\n".to_string());
     lines
@@ -685,7 +695,9 @@ pub struct Config {
     pub extend_accessor: Option<Box<dyn Fn(&'_ str, &'_ str ) -> Vec<String>>>,
 
     /// Extend the generated method
-    pub extend_method: Option<Box<dyn Fn(&str, &str) -> Vec<String>>>,
+    pub extend_method: Option<Box<dyn Fn(&str, &str, &str) -> Vec<String>>>,
+
+    pub method_visibility: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
 }
 
 pub fn generate(app: &Application, config: &Config) -> String {
