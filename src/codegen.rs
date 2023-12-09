@@ -299,8 +299,11 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
 
     lines.push(format!("/// Representation of the `{}` resource\n", input.id.as_ref().unwrap()));
 
+    let derive_default = input.params.iter().all(|x| !x.required);
+
     lines.push(
-        "#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n".to_string(),
+        format!("#[derive(Debug, {}Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n",
+               if derive_default { "Default, " } else { "" })
     );
 
     let visibility = config.representation_visibility.as_ref().and_then(|x| x(name.as_str())).unwrap_or_else(|| "pub".to_string());
