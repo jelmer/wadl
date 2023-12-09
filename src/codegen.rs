@@ -137,6 +137,8 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
         }
         .unwrap_or_else(|| field_name.to_string());
 
+        // We expect to support multiple types here in the future
+        #[allow(clippy::single_match)]
         match &param.r#type {
             TypeRef::ResourceType(r) => {
                 if let Some(id) = r.id() {
@@ -186,6 +188,10 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
                     }
                     lines.push("    }\n".to_string());
                     lines.push("\n".to_string());
+
+                    if let Some(extend_accessor) = config.extend_accessor.as_ref() {
+                        lines.extend(extend_accessor(accessor_name.as_str(), ret_type.as_str()));
+                    }
                 }
             }
             _ => {}
@@ -265,6 +271,8 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
     let mut lines: Vec<String> = vec![];
     let name = input.id.as_ref().unwrap().as_str();
     let name = camel_case_name(name);
+
+    lines.push(format!("/// Representation of the `{}` resource\n", input.id.as_ref().unwrap()));
 
     lines.push(
         "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n".to_string(),
@@ -430,7 +438,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
 
     for representation in &input.request.representations {
         match representation {
-            Representation::Definition(d) => {},
+            Representation::Definition(_) => {},
             Representation::Reference(r) => {
                 let id = camel_case_name(r.id().unwrap());
                 line.push_str(format!(", representation: &{}", id).as_str());
@@ -541,13 +549,13 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
 
     for representation in &input.request.representations {
         match representation {
-            Representation::Definition(d) => { }
-            Representation::Reference(r) => {
-                lines.push(format!("        let body = serde_json::to_string(&representation)?;\n"));
+            Representation::Definition(_) => { }
+            Representation::Reference(_) => {
+                lines.push("        let body = serde_json::to_string(&representation)?;\n".to_string());
                 // TODO(jelmer): Support non-JSON representations
-                lines.push(format!("        req.headers_mut().insert(reqwest::header::CONTENT_TYPE, \"application/json\".parse().unwrap());\n"));
-                lines.push(format!("        req.headers_mut().insert(reqwest::header::CONTENT_LENGTH, body.len().to_string().parse().unwrap());\n"));
-                lines.push(format!("        req.body(body);\n"));
+                lines.push("        req.headers_mut().insert(reqwest::header::CONTENT_TYPE, \"application/json\".parse().unwrap());\n".to_string());
+                lines.push("        req.headers_mut().insert(reqwest::header::CONTENT_LENGTH, body.len().to_string().parse().unwrap());\n".to_string());
+                lines.push("        *req.body_mut() = Some(reqwest::blocking::Body::from(body));\n".to_string());
             }
         }
     }
@@ -641,6 +649,7 @@ fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<String> 
 }
 
 #[derive(Default)]
+#[allow(clippy::type_complexity)]
 pub struct Config {
     /// Based on the name of a parameter, determine the rust type
     pub guess_type_name: Option<Box<dyn Fn(&str) -> Option<String>>>,
@@ -667,6 +676,9 @@ pub struct Config {
 
     /// Map an accessor function name to a different type
     pub map_type_for_accessor: Option<Box<dyn Fn(&str) -> Option<(String, String)>>>,
+
+    /// Extend the generated accessor
+    pub extend_accessor: Option<Box<dyn Fn(&'_ str, &'_ str ) -> Vec<String>>>,
 }
 
 pub fn generate(app: &Application, config: &Config) -> String {
