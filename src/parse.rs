@@ -97,34 +97,40 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     .unwrap();
                 let options = parse_options(element);
                 let id = element.attributes.get("id").cloned();
-                let name = element.attributes.get("name").cloned().unwrap();
-                let link_type = element.children.iter().find_map(|node| {
+                let links = element.children.iter().filter_map(|node| {
                     if let Some(element) = node.as_element() {
                         if element.name == "link" {
-                            match element.attributes.get("resource_type") {
-                                Some(href) => Some(TypeRef::ResourceType(
-                                    if let Some(s) = href.strip_prefix('#') {
-                                        ResourceTypeRef::Id(s.to_string())
-                                    } else {
-                                        ResourceTypeRef::Link(href.parse().unwrap())
-                                    },
-                                )),
-                                None => Some(TypeRef::ResourceType(ResourceTypeRef::Empty)),
-                            }
+                            let resource_type: Option<ResourceTypeRef> = element
+                                .attributes
+                                .get("resource_type").map(|x| x.parse().unwrap());
+                            let relation = element.attributes.get("rel").cloned();
+                            let reverse_relation = element.attributes.get("rev").cloned();
+                            let doc = parse_docs(element);
+                            Some(Link {
+                                resource_type,
+                                relation,
+                                reverse_relation,
+                                doc: if doc.len() == 1 {
+                                    Some(doc.into_iter().next().unwrap())
+                                } else {
+                                    assert!(doc.is_empty());
+                                    None
+                                },
+                            })
                         } else {
                             None
                         }
                     } else {
                         None
                     }
-                });
-                let r#type = if let Some(t) = link_type {
-                    Some(t)
+                }).collect::<Vec<_>>();
+                let name = element.attributes.get("name").cloned().unwrap();
+                let r#type = if let Some(t) = element.attributes.get("type").cloned() {
+                    Some(TypeRef::Simple(t))
+                } else if links.len() >= 1 {
+                    Some(TypeRef::ResourceType(links[0].resource_type.clone().unwrap_or(ResourceTypeRef::Empty)))
                 } else {
-                    element
-                        .attributes
-                        .get("type")
-                        .map(|t| TypeRef::Simple(t.clone()))
+                    None
                 };
                 let path = element.attributes.get("path").cloned();
                 let required = element
@@ -163,6 +169,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     required,
                     repeating,
                     fixed,
+                    links,
                     doc: if doc.len() == 1 {
                         Some(doc.into_iter().next().unwrap())
                     } else {
