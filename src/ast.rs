@@ -210,6 +210,25 @@ pub struct Doc {
 }
 
 #[derive(Debug, Clone)]
+pub struct Link {
+    pub resource_type: Option<ResourceTypeRef>,
+
+    /// Optional token that identifies the relationship of the resource identified by the link to
+    /// the resource whose representation the link is embedded in. The value is scoped by the value
+    /// of the ancestor representation element's profile attribute.
+    pub relation: Option<String>,
+
+    /// An optional token that identifies the relationship of the resource whose representation
+    /// the link is embedded in to the resource identified by the link. This is the reverse
+    /// relationship to that identified by the rel attribute. The value is scoped by the value
+    /// of the ancestor representation element's profile attribute.
+    pub reverse_relation: Option<String>,
+
+    pub doc: Option<Doc>,
+}
+
+
+#[derive(Debug, Clone)]
 pub struct Param {
     pub style: ParamStyle,
     pub id: Option<Id>,
@@ -220,6 +239,7 @@ pub struct Param {
     pub repeating: bool,
     pub fixed: Option<String>,
     pub doc: Option<Doc>,
+    pub links: Vec<Link>
 }
 
 #[derive(Debug, Clone)]

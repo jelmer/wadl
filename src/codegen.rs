@@ -293,11 +293,11 @@ fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl
 }
 
 fn readonly_rust_type(name: &str) -> String {
+    if name.starts_with("Option<") && name.ends_with('>') {
+        return format!("Option<{}>", readonly_rust_type(name[7..name.len() - 1].trim()))
+    }
     match name {
         "String" => "&str".to_string(),
-        x if x.starts_with("Option<") && x.ends_with('>') => {
-            format!("Option<&{}>", x[7..x.len() - 1].trim())
-        }
         x if x.starts_with("Vec<") && x.ends_with('>') => {
             format!("&[{}]", x[4..x.len() - 1].trim())
         }
@@ -724,7 +724,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
                                 ), false));
                             }
                         }
-                        _ => todo!("header param type {:?}", param.r#type),
+                        _ => todo!("header param type {:?} for {} in {:?}", param.r#type, param.name, input.id),
                     }
                 }
                 t => todo!("param style {:?}", t),
