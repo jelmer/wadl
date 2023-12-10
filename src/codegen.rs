@@ -107,14 +107,115 @@ pub fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> 
 
     let text = format_doc(input, config);
 
-    lines.extend(text.lines().map(|line| format!("/// {}\n", line)));
-    if indent > 0 {
-        lines = lines
-            .into_iter()
-            .map(|line| format!("{:indent$}{}", "", line.trim_end_matches(' '), indent = indent * 4))
-            .collect();
-    }
+    lines.extend(text.lines().map(|line| format!("///{}{}\n", if line.is_empty() { "" } else { " " }, line)));
     lines
+        .into_iter()
+        .map(|line| format!("{:indent$}{}", "", line, indent = indent * 4))
+        .collect()
+}
+
+#[test]
+fn test_format_doc_plain() {
+    let doc = Doc {
+        title: None,
+        lang: None,
+        content: "This is a test".to_string(),
+        xmlns: None,
+    };
+
+    assert_eq!(
+        format_doc(&doc, &Config::default()),
+        "This is a test".to_string()
+    );
+}
+
+#[test]
+fn test_format_doc_html() {
+    let doc = Doc {
+        title: None,
+        lang: None,
+        content: "<p>This is a test</p>".to_string(),
+        xmlns: Some("http://www.w3.org/1999/xhtml".parse().unwrap()),
+    };
+
+    assert_eq!(
+        format_doc(&doc, &Config::default()),
+        "This is a test".to_string()
+    );
+}
+
+#[test]
+fn test_format_doc_html_link() {
+    let doc = Doc {
+        title: None,
+        lang: None,
+        content: "<p>This is a <a href=\"https://example.com\">test</a></p>".to_string(),
+        xmlns: Some("http://www.w3.org/1999/xhtml".parse().unwrap()),
+    };
+
+    assert_eq!(
+        format_doc(&doc, &Config::default()),
+        "This is a [test](https://example.com)".to_string()
+    );
+}
+
+#[test]
+fn test_generate_doc_plain() {
+    let doc = Doc {
+        title: Some("Foo".to_string()),
+        lang: None,
+        content: "This is a test".to_string(),
+        xmlns: None,
+    };
+
+    assert_eq!(
+        generate_doc(&doc, 0, &Config::default()),
+        vec![
+            "/// # Foo\n".to_string(),
+            "///\n".to_string(),
+            "/// This is a test\n".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_generate_doc_html() {
+    let doc = Doc {
+        title: Some("Foo".to_string()),
+        lang: None,
+        content: "<p>This is a test</p>".to_string(),
+        xmlns: Some("http://www.w3.org/1999/xhtml".parse().unwrap()),
+    };
+
+    assert_eq!(
+        generate_doc(&doc, 0, &Config::default()),
+        vec![
+            "/// # Foo\n".to_string(),
+            "///\n".to_string(),
+            "/// This is a test\n".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_generate_doc_multiple_lines() {
+    let doc = Doc {
+        title: Some("Foo".to_string()),
+        lang: None,
+        content: "This is a test\n\nThis is another test".to_string(),
+        xmlns: None,
+    };
+
+    assert_eq!(
+        generate_doc(&doc, 0, &Config::default()),
+        vec![
+            "/// # Foo\n".to_string(),
+            "///\n".to_string(),
+            "/// This is a test\n".to_string(),
+            "///\n".to_string(),
+            "/// This is another test\n".to_string(),
+        ]
+    );
 }
 
 fn generate_resource_type_ref_accessors(field_name: &str, input: &ResourceTypeRef, param: &Param, config: &Config) -> Vec<String> {
@@ -245,6 +346,13 @@ pub fn resource_type_rust_type(r: &ResourceTypeRef) -> String {
     } else {
         "url::Url".to_string()
     }
+}
+
+#[test]
+fn test_resource_type_rust_type() {
+    use std::str::FromStr;
+    let rt = ResourceTypeRef::from_str("https://api.launchpad.net/1.0/#person").unwrap();
+    assert_eq!(resource_type_rust_type(&rt), "Person");
 }
 
 fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl Fn(&ResourceTypeRef) -> String) -> (String, Vec<String>) {
