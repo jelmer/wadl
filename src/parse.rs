@@ -393,15 +393,18 @@ pub fn parse<R: Read>(reader: R) -> Result<Application, Error> {
     })
 }
 
+/// Parse an XML application description from a file.
 pub fn parse_file<P: AsRef<std::path::Path>>(path: P) -> Result<Application, Error> {
     let file = std::fs::File::open(path).map_err(Error::Io)?;
     parse(file)
 }
 
+/// Parse a string containing an XML application description.
 pub fn parse_string(s: &str) -> Result<Application, Error> {
     parse(s.as_bytes())
 }
 
+/// Parse a byte slice containing an XML application description.
 pub fn parse_bytes(bytes: &[u8]) -> Result<Application, Error> {
     parse(bytes)
 }
