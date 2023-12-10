@@ -467,6 +467,49 @@ fn representation_rust_type(r: &RepresentationRef) -> String {
     }
 }
 
+fn escape_rust_reserved(name: &str) -> &str {
+    match name {
+        "type" => "r#type",
+        "match" => "r#match",
+        "move" => "r#move",
+        "use" => "r#use",
+        "loop" => "r#loop",
+        "continue" => "r#continue",
+        "break" => "r#break",
+        "fn" => "r#fn",
+        "struct" => "r#struct",
+        "enum" => "r#enum",
+        "trait" => "r#trait",
+        "impl" => "r#impl",
+        "pub" => "r#pub",
+        "as" => "r#as",
+        "const" => "r#const",
+        "let" => "r#let",
+        name => name,
+    }
+}
+
+#[test]
+fn test_escape_rust_reserved() {
+    assert_eq!(escape_rust_reserved("type"), "r#type");
+    assert_eq!(escape_rust_reserved("match"), "r#match");
+    assert_eq!(escape_rust_reserved("move"), "r#move");
+    assert_eq!(escape_rust_reserved("use"), "r#use");
+    assert_eq!(escape_rust_reserved("loop"), "r#loop");
+    assert_eq!(escape_rust_reserved("continue"), "r#continue");
+    assert_eq!(escape_rust_reserved("break"), "r#break");
+    assert_eq!(escape_rust_reserved("fn"), "r#fn");
+    assert_eq!(escape_rust_reserved("struct"), "r#struct");
+    assert_eq!(escape_rust_reserved("enum"), "r#enum");
+    assert_eq!(escape_rust_reserved("trait"), "r#trait");
+    assert_eq!(escape_rust_reserved("impl"), "r#impl");
+    assert_eq!(escape_rust_reserved("pub"), "r#pub");
+    assert_eq!(escape_rust_reserved("as"), "r#as");
+    assert_eq!(escape_rust_reserved("const"), "r#const");
+    assert_eq!(escape_rust_reserved("let"), "r#let");
+    assert_eq!(escape_rust_reserved("foo"), "foo");
+}
+
 #[test]
 fn test_representation_rust_type() {
     let rt = RepresentationRef::Id("person".to_string());
@@ -491,11 +534,9 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
     lines.push(format!("{}struct {} {{\n", if visibility.is_empty() { "".to_string() } else { format!("{} ", visibility) }, name));
 
     for param in &input.params {
-        let mut param_name = snake_case_name(param.name.as_str());
+        let param_name = snake_case_name(param.name.as_str());
 
-        if ["type", "move"].contains(&param_name.as_str()) {
-            param_name = format!("r#{}", param_name);
-        }
+        let param_name = escape_rust_reserved(param_name.as_str());
 
         let (param_type, annotations) = param_rust_type(param, config, |_x| "url::Url".to_string());
         let comment = match &param.r#type {
@@ -534,11 +575,9 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
         lines.push("    fn default() -> Self {\n".to_string());
         lines.push("        Self {\n".to_string());
         for param in &input.params {
-            let mut param_name = snake_case_name(param.name.as_str());
+            let param_name = snake_case_name(param.name.as_str());
 
-            if ["type", "move"].contains(&param_name.as_str()) {
-                param_name = format!("r#{}", param_name);
-            }
+            let param_name = escape_rust_reserved(param_name.as_str());
 
             lines.push(format!("            {}: Default::default(),\n", param_name));
         }
@@ -738,14 +777,12 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         }
         let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type);
         let param_type = readonly_rust_type(param_type.as_str());
-        let mut param_name = param.name.clone();
-        if ["type", "move"].contains(&param_name.as_str()) {
-            param_name = format!("r#{}", param_name);
-        }
+        let param_name = param.name.clone();
+        let param_name = escape_rust_reserved(param_name.as_str());
 
         line.push_str(format!(", {}: {}", param_name, param_type).as_str());
 
-        lines.extend(format_arg_doc(param_name.as_str(), param.doc.as_ref(), config));
+        lines.extend(format_arg_doc(param_name, param.doc.as_ref(), config));
     }
     line.push_str(") -> Result<");
     line.push_str(ret_type.as_str());
@@ -769,11 +806,8 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
             ));
         } else {
             let param_name = param.name.as_str();
-            let mut param_name = snake_case_name(param_name);
-            if ["type", "move"].contains(&param_name.as_str()) {
-                param_name = format!("r#{}", param_name);
-            }
-
+            let param_name = snake_case_name(param_name);
+            let param_name = escape_rust_reserved(param_name.as_str());
             let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type);
             let value = match param.r#type {
                 TypeRef::ResourceType(_) => { format!("&{}.url().to_string()", param_name) },
@@ -868,10 +902,8 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
             format!("\"{}\"", fixed)
         } else {
             let param_name = param.name.as_str();
-            let mut param_name = snake_case_name(param_name);
-            if ["type", "move"].contains(&param_name.as_str()) {
-                param_name = format!("r#{}", param_name);
-            }
+            let param_name = snake_case_name(param_name);
+            let param_name = escape_rust_reserved(param_name.as_str());
 
             format!("&{}.to_string()", param_name)
         };
