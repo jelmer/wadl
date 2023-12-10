@@ -76,6 +76,27 @@ pub fn parse_options(element: &Element) -> Option<HashMap<String, Option<mime::M
     }
 }
 
+#[test]
+fn test_parse_options() {
+    let xml = r#"
+        <param name="format">
+            <option value="json" mediaType="application/json"/>
+            <option value="xml" mediaType="application/xml"/>
+        </param>
+    "#;
+    let element = Element::parse(xml.as_bytes()).unwrap();
+    let options = parse_options(&element).unwrap();
+    assert_eq!(options.len(), 2);
+    assert_eq!(
+        options.get("json").unwrap(),
+        &Some("application/json".parse().unwrap())
+    );
+    assert_eq!(
+        options.get("xml").unwrap(),
+        &Some("application/xml".parse().unwrap())
+    );
+}
+
 pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -> Vec<Param> {
     let mut params = Vec::new();
 
@@ -127,7 +148,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                 let name = element.attributes.get("name").cloned().unwrap();
                 let r#type = if let Some(t) = element.attributes.get("type").cloned() {
                     Some(TypeRef::Simple(t))
-                } else if links.len() >= 1 {
+                } else if !links.is_empty() {
                     Some(TypeRef::ResourceType(links[0].resource_type.clone().unwrap_or(ResourceTypeRef::Empty)))
                 } else {
                     None
@@ -267,12 +288,12 @@ fn parse_docs(resource_element: &Element) -> Vec<Doc> {
                 }
                 let lang = element
                     .attributes
-                    .get("{http://www.w3.org/XML/1998/namespace}lang")
+                    .get("lang")
                     .cloned();
 
-                let namespaces = element.namespaces.as_ref().unwrap();
+                let namespaces = element.namespaces.as_ref();
 
-                let xmlns = namespaces.get("").map(|u| u.parse().unwrap());
+                let xmlns = namespaces.and_then(|x| x.get("").map(|u| u.parse().unwrap()));
 
                 docs.push(Doc {
                     title,
@@ -398,7 +419,7 @@ fn parse_representations(request_element: &Element) -> Vec<Representation> {
                         )));
                     } else {
                         representations.push(Representation::Reference(RepresentationRef::Link(
-                            href.parse().unwrap(),
+                            href.parse().expect("Invalid URL"),
                         )));
                     }
                 } else {
@@ -427,6 +448,49 @@ fn parse_representations(request_element: &Element) -> Vec<Representation> {
     representations
 }
 
+#[test]
+fn test_parse_representations() {
+    let xml = r#"<response xmlns:xml="http://www.w3.org/XML/1998/namespace">
+        <representation id="foo" mediaType="application/json">
+            <doc xml:lang="en">Foo</doc>
+            <param name="foo" style="plain" type="xs:string" required="true" default="bar" fixed="baz">
+                <doc xml:lang="en">Foo</doc>
+            </param>
+            <param name="bar" style="query" type="xs:string" required="true" default="bar" fixed="baz">
+                <doc xml:lang="en">Bar</doc>
+            </param>
+        </representation>
+        <representation href='#bar' />
+        <representation href="http://example.com/bar" />
+        </response>
+    "#;
+
+    let root = Element::parse(xml.as_bytes()).unwrap();
+
+    let representations = parse_representations(&root);
+
+    assert_eq!(representations.len(), 3);
+
+    if let Representation::Definition(r) = &representations[0] {
+        assert_eq!(r.id, Some("foo".to_string()));
+        assert_eq!(r.media_type, Some("application/json".parse().unwrap()));
+        assert_eq!(r.docs.len(), 1);
+        assert_eq!(r.docs[0].content, "Foo");
+        assert_eq!(r.docs[0].lang, Some("en".to_string()));
+        assert_eq!(r.params.len(), 2);
+        assert_eq!(r.params[0].name, "foo");
+        assert_eq!(r.params[0].style, ParamStyle::Plain);
+        assert!(r.params[0].required);
+        assert_eq!(r.params[0].fixed, Some("baz".to_string()));
+        assert_eq!(r.params[0].doc.as_ref().unwrap().content, "Foo");
+        assert_eq!(r.params[0].doc.as_ref().unwrap().lang, Some("en".to_string()));
+        assert_eq!(r.params[1].name, "bar");
+        assert_eq!(r.params[1].style, ParamStyle::Query);
+        assert!(r.params[1].required);
+        assert_eq!(r.params[1].fixed, Some("baz".to_string()));
+    }
+}
+
 fn parse_response(response_element: &Element) -> Response {
     let docs = parse_docs(response_element);
 
@@ -447,6 +511,35 @@ fn parse_response(response_element: &Element) -> Response {
     }
 }
 
+#[test]
+fn test_parses_response() {
+    let xml = r#"
+        <response status="200">
+            <param name="foo" style="plain" type="xs:string" required="true" default="bar" fixed="baz">
+                <doc xml:lang="en">Foo</doc>
+            </param>
+            <param name="bar" style="query" type="xs:string" required="true" default="bar" fixed="baz">
+                <doc xml:lang="en">Bar</doc>
+            </param>
+            <param name="baz" style="header" type="xs:string" required="true" default="bar" fixed="baz">
+                <doc xml:lang="en">Baz</doc>
+            </param>
+            <representation href='#foo' />
+            <representation href="http://example.com/bar" />
+            <representation mediaType="application/json" />
+            <representation element="foo" />
+            <representation profile="http://example.com/profile" />
+        </response>
+    "#;
+
+    let element = Element::parse(xml.as_bytes()).unwrap();
+
+    let response = parse_response(&element);
+
+    assert_eq!(response.status, Some(200));
+    assert_eq!(response.representations.len(), 5);
+}
+
 fn parse_request(request_element: &Element) -> Request {
     let docs = parse_docs(request_element);
 
@@ -459,6 +552,35 @@ fn parse_request(request_element: &Element) -> Request {
         params,
         representations,
     }
+}
+
+#[test]
+fn test_parse_request() {
+    let xml = r#"
+        <request>
+            <param name="foo" style="plain" type="xs:string" required="true" default="bar" fixed="baz">
+                <doc xml:lang="en">Foo</doc>
+            </param>
+            <param name="bar" style="query" type="xs:string" required="true" default="bar" fixed="baz">
+                <doc xml:lang="en">Bar</doc>
+            </param>
+            <param name="baz" style="header" type="xs:string" required="true" default="bar" fixed="baz">
+                <doc xml:lang="en">Baz</doc>
+            </param>
+            <representation mediaType="application/json" element="foo" profile="bar" id="baz">
+                <doc xml:lang="en">Foo</doc>
+            </representation>
+            <representation href='#qux'/>
+        </request>
+    "#;
+
+    let element = Element::parse(xml.as_bytes()).unwrap();
+
+    let request = parse_request(&element);
+
+    assert_eq!(request.docs.len(), 0);
+    assert_eq!(request.params.len(), 3);
+    assert_eq!(request.representations.len(), 2);
 }
 
 fn parse_method(method_element: &Element) -> Method {
@@ -498,6 +620,50 @@ fn parse_method(method_element: &Element) -> Method {
         request,
         responses,
     }
+}
+
+#[test]
+fn test_parse_method() {
+    let xml = r#"
+        <method name="GET">
+            <doc>Get a list of all the widgets</doc>
+            <request>
+                <doc>Filter the list of widgets</doc>
+                <param name="filter" style="query" type="string" required="false">
+                    <doc>Filter the list of widgets</doc>
+                </param>
+            </request>
+            <response status="200">
+                <doc>Return a list of widgets</doc>
+                <representation mediaType="application/json">
+                    <doc>Return a list of widgets</doc>
+                </representation>
+                <param name="id" style="plain" type="string" required="true">
+                    <doc>Return a list of widgets</doc>
+                </param>
+                <param name="name" style="plain" type="string" required="true">
+                    <doc>Return a list of widgets</doc>
+                </param>
+
+            </response>
+        </method>
+    "#;
+
+    let method = parse_method(&Element::parse(xml.as_bytes()).unwrap());
+
+    assert_eq!(method.id, "");
+    assert_eq!(method.name, "GET");
+    assert_eq!(method.docs, vec![Doc { content: "Get a list of all the widgets".to_string(), ..Default::default() }]);
+    assert_eq!(method.request.docs, vec![Doc { content: "Filter the list of widgets".to_string(), ..Default::default() }]);
+    assert_eq!(method.request.params.len(), 1);
+    assert_eq!(method.request.params[0].name, "filter");
+    assert_eq!(method.request.params[0].doc.as_ref().unwrap(), &Doc{ content: "Filter the list of widgets".to_string(), ..Default::default() });
+    assert_eq!(method.responses.len(), 1);
+    assert_eq!(method.responses[0].docs, vec![Doc { content: "Return a list of widgets".to_string(), ..Default::default() }]);
+    assert_eq!(method.responses[0].status, Some(200));
+    assert_eq!(method.responses[0].representations.len(), 1);
+    assert_eq!(method.responses[0].representations[0].as_def().unwrap().media_type, Some("application/json".parse().unwrap()));
+    assert_eq!(method.responses[0].params.len(), 2);
 }
 
 fn parse_methods(resource_element: &Element) -> Vec<Method> {

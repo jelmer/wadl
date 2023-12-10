@@ -194,7 +194,7 @@ pub struct Method {
     pub responses: Vec<Response>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Doc {
     /// The title of the documentation.
     pub title: Option<String>,
@@ -284,6 +284,13 @@ impl Representation {
             }
             Representation::Reference(RepresentationRef::Link(l)) => Some(l.clone()),
             Representation::Definition(d) => d.url(base_url),
+        }
+    }
+
+    pub fn as_def(&self) -> Option<&RepresentationDef> {
+        match self {
+            Representation::Reference(_) => None,
+            Representation::Definition(d) => Some(d),
         }
     }
 }
