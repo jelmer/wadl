@@ -323,8 +323,7 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
     let derive_default = input.params.iter().all(|x| !x.required);
 
     lines.push(
-        format!("#[derive(Debug, {}Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n",
-               if derive_default { "Default, " } else { "" })
+        "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n".to_string(),
     );
 
     let visibility = config.representation_visibility.as_ref().and_then(|x| x(name.as_str())).unwrap_or_else(|| "pub".to_string());
@@ -369,6 +368,27 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
     }
 
     lines.push("}\n".to_string());
+
+    if derive_default {
+        lines.push(format!("impl Default for {} {{\n", name));
+        lines.push("    fn default() -> Self {\n".to_string());
+        lines.push("        Self {\n".to_string());
+        for param in &input.params {
+            let mut param_name = snake_case_name(param.name.as_str());
+
+            if ["type", "move"].contains(&param_name.as_str()) {
+                param_name = format!("r#{}", param_name);
+            }
+
+            lines.push(format!("            {}: Default::default(),\n", param_name));
+        }
+
+        lines.push("        }\n".to_string());
+        lines.push("    }\n".to_string());
+        lines.push("}\n".to_string());
+        lines.push("\n".to_string());
+    }
+
     lines.push("\n".to_string());
 
     lines
