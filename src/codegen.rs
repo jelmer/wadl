@@ -30,22 +30,25 @@ fn test_camel_case_name() {
     assert_eq!(camel_case_name("foo-bar-baz-quux"), "FooBarBazQuux");
     assert_eq!(camel_case_name("_foo-bar"), "_fooBar");
     assert_eq!(camel_case_name("service-root-json"), "ServiceRootJson");
+    assert_eq!(camel_case_name("get-some-URL"), "GetSomeURL");
 }
 
 fn snake_case_name(name: &str) -> String {
     let mut name = name.to_string();
     name = name.replace('-', "_");
-    let mut it = name.chars().peekable();
+    let it = name.chars().peekable();
     let mut result = String::new();
-    while it.peek().is_some() {
-        let c = it.next().unwrap();
+    let mut started = false;
+    for c in it {
         if c.is_uppercase() {
-            if !result.is_empty() && !result.ends_with('_') {
+            if !result.is_empty() && !started && !result.ends_with('_'){
                 result.push('_');
+                started = true;
             }
-            result.push_str(&c.to_lowercase().collect::<String>());
+            result.push_str(c.to_lowercase().collect::<String>().as_str());
         } else {
             result.push(c);
+            started = false;
         }
     }
     result
@@ -53,10 +56,13 @@ fn snake_case_name(name: &str) -> String {
 
 #[test]
 fn test_snake_case_name() {
+    assert_eq!(snake_case_name("F"), "f");
     assert_eq!(snake_case_name("FooBar"), "foo_bar");
     assert_eq!(snake_case_name("FooBarBaz"), "foo_bar_baz");
     assert_eq!(snake_case_name("FooBarBazQuux"), "foo_bar_baz_quux");
     assert_eq!(snake_case_name("_FooBar"), "_foo_bar");
+    assert_eq!(snake_case_name("ServiceRootJson"), "service_root_json");
+    assert_eq!(snake_case_name("GetSomeURL"), "get_some_url");
 }
 
 fn strip_code_examples(input: String) -> String {
@@ -233,7 +239,15 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
     lines
 }
 
-fn param_rust_type(param: &Param, config: &Config) -> (String, Vec<String>) {
+pub fn resource_type_rust_type(r: &ResourceTypeRef) -> String {
+    if let Some(id) = r.id() {
+        camel_case_name(id)
+    } else {
+        "url::Url".to_string()
+    }
+}
+
+fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl Fn(&ResourceTypeRef) -> String) -> (String, Vec<String>) {
     assert!(param.id.is_none());
     assert!(param.fixed.is_none());
 
@@ -246,8 +260,7 @@ fn param_rust_type(param: &Param, config: &Config) -> (String, Vec<String>) {
             "binary" => ("Vec<u8>".to_string(), vec![]),
             u => panic!("Unknown type: {}", u),
         },
-        // TODO: Return the actual type, not a URL
-        TypeRef::ResourceType(_) => ("url::Url".to_string(), vec![]),
+        TypeRef::ResourceType(r) => (resource_type_rust_type(r), vec![]),
         TypeRef::Options(_options) => {
             // TODO: define an enum for this
             ("String".to_string(), vec![])
@@ -292,6 +305,14 @@ fn readonly_rust_type(name: &str) -> String {
     }
 }
 
+fn representation_rust_type(r: &RepresentationRef) -> String {
+    if let Some(id) = r.id() {
+        camel_case_name(id)
+    } else {
+        "serde_json::Value".to_string()
+    }
+}
+
 fn generate_representation_struct_json(input: &RepresentationDef, config: &Config) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
     let name = input.id.as_ref().unwrap().as_str();
@@ -317,7 +338,7 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
             param_name = format!("r#{}", param_name);
         }
 
-        let (param_type, annotations) = param_rust_type(param, config);
+        let (param_type, annotations) = param_rust_type(param, config, |_x| "url::Url".to_string());
         let comment = match &param.r#type {
             TypeRef::Simple(name) => format!("was: {}", name),
             TypeRef::ResourceType(r) => match r {
@@ -379,7 +400,7 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
 
                 let mut ret = Vec::new();
                 for param in &input.params {
-                    let (param_type, _annotations) = param_rust_type(param, &Config::default());
+                    let (param_type, _annotations) = param_rust_type(param, &Config::default(), resource_type_rust_type);
                     ret.push(param_type);
                 }
                 if ret.len() == 1 {
@@ -392,7 +413,7 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
     } else if representations.is_empty() {
         let mut ret = Vec::new();
         for param in &input.params {
-            let (param_type, _annotations) = param_rust_type(param, &Config::default());
+            let (param_type, _annotations) = param_rust_type(param, &Config::default(), resource_type_rust_type);
             ret.push(param_type);
         }
         if ret.len() == 1 {
@@ -437,6 +458,19 @@ pub fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config
     lines
 }
 
+fn apply_map_fn(map_fn: &str, ret_type: &str, required: bool) -> String {
+    if map_fn.is_empty() {
+        ret_type.to_string()
+    } else if required {
+        if map_fn.starts_with('|') {
+            format!("({})({})", map_fn, ret_type)
+        } else {
+            format!("{}({})", map_fn, ret_type)
+        }
+    } else {
+        format!("{}.map({})", ret_type, map_fn)
+    }
+}
 
 pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<String> {
     let mut lines = vec![];
@@ -501,7 +535,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         if param.fixed.is_some() {
             continue;
         }
-        let (param_type, _annotations) = param_rust_type(param, config);
+        let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type);
         let param_type = readonly_rust_type(param_type.as_str());
         let mut param_name = param.name.clone();
         if ["type", "move"].contains(&param_name.as_str()) {
@@ -539,8 +573,11 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
                 param_name = format!("r#{}", param_name);
             }
 
-            let (param_type, _annotations) = param_rust_type(param, config);
-            let value = format!("&{}.to_string()", param_name);
+            let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type);
+            let value = match param.r#type {
+                TypeRef::ResourceType(_) => { format!("&{}.url().to_string()", param_name) },
+                TypeRef::Simple(_) | TypeRef::NoType | TypeRef::Options(_) => { format!("&{}.to_string()", param_name) }
+            };
 
             let mut indent = 0;
 
@@ -597,7 +634,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         }
     }
 
-    let mime_types = input
+    let response_mime_types = input
         .responses
         .iter()
         .flat_map(|x| {
@@ -614,10 +651,10 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         })
         .collect::<Vec<_>>();
 
-    if !mime_types.is_empty() {
+    if !response_mime_types.is_empty() {
         lines.push(format!(
             "        req.headers_mut().insert(reqwest::header::ACCEPT, \"{}\".parse().unwrap());\n",
-            mime_types
+            response_mime_types
                 .into_iter()
                 .map(|x| x.to_string())
                 .collect::<Vec<_>>()
@@ -646,12 +683,74 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
 
     lines.push("\n".to_string());
     lines.push("        let resp = client.execute(req)?.error_for_status()?;\n".to_string());
-    lines.push("        let text = resp.text()?;\n".to_string());
-    lines.push(format!("        serde_json::from_str(&text).map_err(|e| Error::Json(e)){}\n", if let Some(map_fn) = map_fn {
-        format!(".map({})", map_fn)
-    } else {
-        "".to_string()
-    }));
+
+    lines.push("        match resp.status() {\n".to_string());
+
+    for response in input.responses.iter() {
+        let mut return_types = vec![];
+
+        // TODO(jelmer): match on media type
+        if let Some(status) = response.status {
+            lines.push(format!("            s if s.as_u16() == reqwest::StatusCode::{} => {{\n", status));
+        } else {
+            lines.push("            s if s.is_success() => {\n".to_string());
+        }
+        for representation in response.representations.iter() {
+            match representation {
+                Representation::Definition(_) => { }
+                Representation::Reference(r) => {
+                    let rt = representation_rust_type(r);
+                    return_types.push((format!("resp.json::<{}>()?", rt), true));
+                }
+            }
+        }
+
+        for param in response.params.iter() {
+            match &param.style {
+                ParamStyle::Header => {
+                    match &param.r#type {
+                        TypeRef::ResourceType(r) => {
+                            if param.required {
+                                return_types.push((format!(
+                                    "{}(resp.headers().get(\"{}\")?.to_str()?.parse().unwrap())",
+                                    resource_type_rust_type(r),
+                                    param.name
+                                ), true));
+                            } else {
+                                return_types.push((format!(
+                                    "resp.headers().get(\"{}\").map(|x| {}(x.to_str().unwrap().parse().unwrap()))",
+                                    param.name,
+                                    resource_type_rust_type(r),
+                                ), false));
+                            }
+                        }
+                        _ => todo!("header param type {:?}", param.r#type),
+                    }
+                }
+                t => todo!("param style {:?}", t),
+            }
+        }
+
+        if return_types.is_empty() {
+            lines.push("        Ok(())\n".to_string());
+        } else if return_types.len() == 1 {
+            if let Some(map_fn) = map_fn.as_ref() {
+                lines.push(format!("                Ok({})\n", apply_map_fn(map_fn, &return_types[0].0, return_types[0].1)));
+            } else {
+                lines.push(format!("                Ok({})\n", return_types[0].0));
+            }
+        } else if let Some(map_fn) = map_fn.as_ref() {
+            lines.push(format!("                 Ok({})\n", apply_map_fn(map_fn, &return_types.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", "), true)));
+        } else {
+            lines.push(format!("                Ok(({}))\n", return_types.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", ")));
+        }
+        lines.push("            }\n".to_string());
+    }
+    if input.responses.is_empty() {
+        lines.push("            s if s.is_success() => Ok(()),\n".to_string());
+    }
+    lines.push("            _ => Err(wadl::Error::UnhandledResponse(resp))\n".to_string());
+    lines.push("        }\n".to_string());
     lines.push("    }\n".to_string());
     lines.push("\n".to_string());
 

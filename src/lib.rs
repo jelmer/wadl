@@ -34,6 +34,7 @@ pub enum Error {
     Url(url::ParseError),
     Json(serde_json::Error),
     Wadl(ParseError),
+    UnhandledResponse(reqwest::blocking::Response),
 }
 
 impl From<serde_json::Error> for Error {
@@ -50,6 +51,7 @@ impl std::fmt::Display for Error {
             Error::Url(err) => write!(f, "URL error: {}", err),
             Error::Json(err) => write!(f, "JSON error: {}", err),
             Error::Wadl(err) => write!(f, "WADL error: {}", err),
+            Error::UnhandledResponse(res) => write!(f, "Unhandled response. Code: {}, response type: {}", res.status(), res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
         }
     }
 }
