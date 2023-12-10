@@ -78,6 +78,34 @@ fn strip_code_examples(input: String) -> String {
     }).collect::<Vec<_>>().join("\n")
 }
 
+#[test]
+fn test_strip_code_examples() {
+    let input = r#"This is a test
+```python
+def foo():
+    pass
+```
+
+This is another test
+```python
+def bar():
+    pass
+```
+"#;
+    let expected = r#"This is a test
+
+This is another test"#;
+    assert_eq!(strip_code_examples(input.to_string()), expected);
+}
+
+/// Format the given `Doc` object into a string.
+///
+/// # Arguments
+/// * `input` - The `Doc` object to format.
+/// * `config` - The configuration to use.
+///
+/// # Returns
+/// The formatted string.
 fn format_doc(input: &Doc, config: &Config) -> String {
     match input.xmlns.as_ref().map(|x| x.as_str()) {
         Some("http://www.w3.org/1999/xhtml") => {
@@ -98,6 +126,15 @@ fn format_doc(input: &Doc, config: &Config) -> String {
     }
 }
 
+/// Generate a docstring from the given `Doc` object.
+///
+/// # Arguments
+/// * `input` - The `Doc` object to generate the docstring from.
+/// * `indent` - The indentation level to use.
+/// * `config` - The configuration to use.
+///
+/// # Returns
+/// A vector of strings, each representing a line of the docstring.
 pub fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
 
@@ -413,12 +450,27 @@ fn readonly_rust_type(name: &str) -> String {
     }
 }
 
+#[test]
+fn test_readonly_rust_type() {
+    assert_eq!(readonly_rust_type("String"), "&str");
+    assert_eq!(readonly_rust_type("Vec<String>"), "&[String]");
+    assert_eq!(readonly_rust_type("Option<Vec<String>>"), "Option<&[String]>");
+    assert_eq!(readonly_rust_type("Option<String>"), "Option<&str>");
+    assert_eq!(readonly_rust_type("usize"), "&usize");
+}
+
 fn representation_rust_type(r: &RepresentationRef) -> String {
     if let Some(id) = r.id() {
         camel_case_name(id)
     } else {
         "serde_json::Value".to_string()
     }
+}
+
+#[test]
+fn test_representation_rust_type() {
+    let rt = RepresentationRef::Id("person".to_string());
+    assert_eq!(representation_rust_type(&rt), "Person");
 }
 
 fn generate_representation_struct_json(input: &RepresentationDef, config: &Config) -> Vec<String> {
@@ -586,18 +638,39 @@ pub fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config
     lines
 }
 
-fn apply_map_fn(map_fn: &str, ret_type: &str, required: bool) -> String {
+fn apply_map_fn(map_fn: &str, ret: &str, required: bool) -> String {
     if map_fn.is_empty() {
-        ret_type.to_string()
+        ret.to_string()
     } else if required {
         if map_fn.starts_with('|') {
-            format!("({})({})", map_fn, ret_type)
+            format!("({})({})", map_fn, ret)
         } else {
-            format!("{}({})", map_fn, ret_type)
+            format!("{}({})", map_fn, ret)
         }
     } else {
-        format!("{}.map({})", ret_type, map_fn)
+        format!("{}.map({})", ret, map_fn)
     }
+}
+
+#[test]
+fn test_apply_map_fn() {
+    assert_eq!(apply_map_fn("", "x", true), "x".to_string());
+    assert_eq!(
+        apply_map_fn("Some", "x", true),
+        "Some(x)".to_string()
+    );
+    assert_eq!(
+        apply_map_fn("Some", "x", false),
+        "x.map(Some)".to_string()
+    );
+    assert_eq!(
+        apply_map_fn("|y|y+1", "x", true),
+        "(|y|y+1)(x)".to_string()
+    );
+    assert_eq!(
+        apply_map_fn("|y|y+1", "x", false),
+        "x.map(|y|y+1)".to_string()
+    );
 }
 
 pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<String> {
