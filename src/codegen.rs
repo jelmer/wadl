@@ -344,10 +344,6 @@ fn generate_resource_type_ref_accessors(field_name: &str, input: &ResourceTypeRe
 
 fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<String> {
     let mut lines = vec![];
-    for doc in &input.docs {
-        lines.extend(generate_doc(doc, 0, config));
-    }
-
     if input.media_type == Some(mime::APPLICATION_JSON) {
         lines.extend(generate_representation_struct_json(input, config));
     } else {
@@ -404,6 +400,7 @@ fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl
             "xsd:date" => ("chrono::NaiveDate".to_string(), vec![]),
             "xsd:dateTime" => ("chrono::DateTime<chrono::Utc>".to_string(), vec![]),
             "xsd:time" => ("(chrono::Time".to_string(), vec![]),
+            "xs:int" => ("i32".to_string(), vec![]),
             "string" => ("String".to_string(), vec![]),
             "binary" => ("Vec<u8>".to_string(), vec![]),
             u => panic!("Unknown type: {}", u),
@@ -524,7 +521,13 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
     let name = input.id.as_ref().unwrap().as_str();
     let name = camel_case_name(name);
 
-    lines.push(format!("/// Representation of the `{}` resource\n", input.id.as_ref().unwrap()));
+    for doc in &input.docs {
+        lines.extend(generate_doc(doc, 0, config));
+    }
+
+    if input.docs.is_empty() {
+        lines.push(format!("/// Representation of the `{}` resource\n", input.id.as_ref().unwrap()));
+    }
 
     let derive_default = input.params.iter().all(|x| !x.required);
 
@@ -594,6 +597,62 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
     lines.push("\n".to_string());
 
     lines
+}
+
+#[test]
+fn test_generate_representation() {
+    let input = RepresentationDef {
+        media_type: Some("application/json".parse().unwrap()),
+        element: None,
+        profile: None,
+        docs: vec![],
+        id: Some("person".to_string()),
+        params: vec![Param {
+            name: "name".to_string(),
+            r#type: TypeRef::Simple("string".to_string()),
+            style: ParamStyle::Plain,
+            required: true,
+            doc: Some(Doc::new("The name of the person".to_string())),
+            path: None,
+            id: None,
+            repeating: false,
+            fixed: None,
+            links: vec![],
+        },
+        Param{
+            name: "age".to_string(),
+            r#type: TypeRef::Simple("xs:int".to_string()),
+            required: true,
+            doc: Some(Doc::new("The age of the person".to_string())),
+            style: ParamStyle::Query,
+            path: None,
+            id: None,
+            repeating: false,
+            fixed: None,
+        links: vec![],
+        }]
+    };
+
+    let config = Config::default();
+
+    let lines = generate_representation_struct_json(&input, &config);
+
+    assert_eq!(
+        lines,
+        vec![
+            "/// Representation of the `person` resource\n".to_string(),
+            "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n".to_string(),
+            "pub struct Person {\n".to_string(),
+            "    // was: string\n".to_string(),
+            "    /// The name of the person\n".to_string(),
+            "    pub name: String,\n".to_string(),
+            "    // was: xs:int\n".to_string(),
+            "    /// The age of the person\n".to_string(),
+            "    pub age: i32,\n".to_string(),
+            "}\n".to_string(),
+            "\n".to_string(),
+        ]
+    );
 }
 
 fn supported_representation_def(d: &RepresentationDef) -> bool {
