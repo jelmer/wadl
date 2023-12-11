@@ -799,6 +799,34 @@ pub fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config
     lines
 }
 
+#[test]
+fn test_format_arg_doc() {
+    let config = Config::default();
+    assert_eq!(
+        format_arg_doc("foo", None, &config),
+        vec!["    /// * `foo`\n".to_string()]
+    );
+    assert_eq!(
+        format_arg_doc("foo", Some(&Doc::new("bar".to_string())), &config),
+        vec!["    /// * `foo`: bar\n".to_string()]
+    );
+    assert_eq!(
+        format_arg_doc("foo", Some(&Doc::new("bar\nbaz".to_string())), &config),
+        vec![
+            "    /// * `foo`: bar\n".to_string(),
+            "    ///     baz\n".to_string()
+        ]
+    );
+    assert_eq!(
+        format_arg_doc("foo", Some(&Doc::new("bar\n\nbaz".to_string())), &config),
+        vec![
+            "    /// * `foo`: bar\n".to_string(),
+            "    ///\n".to_string(),
+            "    ///     baz\n".to_string()
+        ]
+    );
+}
+
 fn apply_map_fn(map_fn: Option<&str>, ret: &str, required: bool) -> String {
     if let Some(map_fn) = map_fn {
         if required {
@@ -1039,7 +1067,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
     }
 
     lines.push("\n".to_string());
-    lines.push("        let resp = client.execute(req)?.error_for_status()?;\n".to_string());
+    lines.push("        let resp = client.execute(req)?;\n".to_string());
 
     lines.push("        match resp.status() {\n".to_string());
 
@@ -1111,6 +1139,37 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
     }
 
     lines
+}
+
+#[test]
+fn test_generate_method() {
+    let input = Method {
+        id: "foo".to_string(),
+        name: "GET".to_string(),
+        docs: vec![],
+        request: Request {
+            docs: vec![],
+            params: vec![],
+            representations: vec![],
+        },
+        responses: vec![],
+    };
+    let config = Config::default();
+    let lines = generate_method(&input, "bar", &config);
+    assert_eq!(lines, vec![
+        "    pub fn foo<'a>(&self, client: &'a dyn wadl::Client) -> Result<(), Error> {\n".to_string(),
+        "        let mut url_ = self.url().clone();\n".to_string(),
+        "\n".to_string(),
+        "        let mut req = reqwest::blocking::Request::new(reqwest::Method::GET, url_);\n".to_string(),
+        "\n".to_string(),
+        "        let resp = client.execute(req)?;\n".to_string(),
+        "        match resp.status() {\n".to_string(),
+        "            s if s.is_success() => Ok(()),\n".to_string(),
+        "            _ => Err(wadl::Error::UnhandledResponse(resp))\n".to_string(),
+        "        }\n".to_string(),
+        "    }\n".to_string(),
+        "\n".to_string(),
+    ]);
 }
 
 fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<String> {

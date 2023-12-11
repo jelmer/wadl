@@ -209,6 +209,15 @@ pub struct Doc {
     pub xmlns: Option<url::Url>,
 }
 
+impl Doc {
+    pub fn new(content: String) -> Self {
+        Self {
+            content,
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Link {
     pub resource_type: Option<ResourceTypeRef>,
