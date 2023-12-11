@@ -1209,6 +1209,33 @@ fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<String> 
     lines
 }
 
+#[test]
+fn test_generate_resource_type() {
+    let input = ResourceType {
+        id: "foo".to_string(),
+        docs: vec![],
+        methods: vec![],
+        query_type: mime::APPLICATION_JSON,
+        params: vec![],
+        subresources: vec![]
+    };
+    let config = Config::default();
+    let lines = generate_resource_type(&input, &config);
+    assert_eq!(lines, vec![
+        "pub struct Foo (reqwest::Url);\n".to_string(),
+        "\n".to_string(),
+        "impl Foo {\n".to_string(),
+        "}\n".to_string(),
+        "\n".to_string(),
+        "impl Resource for Foo {\n".to_string(),
+        "    fn url(&self) -> &reqwest::Url {\n".to_string(),
+        "        &self.0\n".to_string(),
+        "    }\n".to_string(),
+        "}\n".to_string(),
+        "\n".to_string(),
+    ]);
+}
+
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
 pub struct Config {
@@ -1269,4 +1296,18 @@ pub fn generate(app: &Application, config: &Config) -> String {
     }
 
     lines.concat()
+}
+
+#[test]
+fn test_generate_empty() {
+    let input = crate::ast::Application {
+        docs: vec![],
+        representations: vec![],
+        resource_types: vec![],
+        resources: vec![],
+        grammars: vec![]
+    };
+    let config = Config::default();
+    let lines = generate(&input, &config);
+    assert_eq!(lines, "".to_string());
 }
