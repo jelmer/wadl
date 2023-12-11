@@ -397,7 +397,6 @@ fn test_resource_type_rust_type() {
 }
 
 fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl Fn(&ResourceTypeRef) -> String) -> (String, Vec<String>) {
-    assert!(param.id.is_none());
     assert!(param.fixed.is_none());
 
     let (mut param_type, annotations) = match &param.r#type {
@@ -602,6 +601,28 @@ fn supported_representation_def(d: &RepresentationDef) -> bool {
         && d.media_type != Some(XHTML_MIME_TYPE.parse().unwrap())
 }
 
+#[test]
+fn test_supported_representation_def() {
+    let mut d = RepresentationDef::default();
+    d.media_type = Some(WADL_MIME_TYPE.parse().unwrap());
+    assert!(!supported_representation_def(&d));
+
+    d.media_type = Some(XHTML_MIME_TYPE.parse().unwrap());
+    assert!(!supported_representation_def(&d));
+
+    d.media_type = Some("application/json".parse().unwrap());
+    assert!(supported_representation_def(&d));
+}
+
+/// Generate the Rust type for a representation
+///
+/// # Arguments
+/// * `input` - The representation to generate the Rust type for
+/// * `name` - The name of the representation
+///
+/// # Returns
+///
+/// The Rust type for the representation
 pub fn rust_type_for_response(input: &Response, name: &str) -> String {
     let representations = input
         .representations
@@ -651,6 +672,103 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
             representations
         );
     }
+}
+
+#[test]
+fn test_rust_type_for_response() {
+    let mut input = Response {
+        params: vec![Param {
+        id: Some("foo".to_string()),
+        name: "foo".to_string(),
+        r#type: TypeRef::Simple("string".to_string()),
+        style: ParamStyle::Header,
+        doc: None,
+        required: true,
+        repeating: false,
+        fixed: None,
+        path: None,
+        links: Vec::new(),
+        }],
+        ..Default::default()
+    };
+    assert_eq!(
+        rust_type_for_response(&input, "foo"),
+        "String".to_string()
+    );
+
+    input.params = vec![
+        Param {
+            id: Some("foo".to_string()),
+            name: "foo".to_string(),
+            r#type: TypeRef::Simple("string".to_string()),
+            style: ParamStyle::Header,
+            doc: None,
+            required: true,
+            repeating: false,
+            fixed: None,
+            path: None,
+            links: Vec::new(),
+        },
+        Param {
+            id: Some("bar".to_string()),
+            name: "bar".to_string(),
+            r#type: TypeRef::Simple("string".to_string()),
+            style: ParamStyle::Header,
+            doc: None,
+            required: true,
+            repeating: false,
+            fixed: None,
+            path: None,
+            links: Vec::new(),
+        },
+    ];
+    assert_eq!(
+        rust_type_for_response(&input, "foo"),
+        "(String, String)".to_string()
+    );
+
+    input.params = vec![Param {
+        id: Some("foo".to_string()),
+        name: "foo".to_string(),
+        r#type: TypeRef::ResourceType(ResourceTypeRef::Id("foo".to_string())),
+        style: ParamStyle::Header,
+        doc: None,
+        required: true,
+        repeating: false,
+        fixed: None,
+        path: None,
+        links: Vec::new(),
+
+    }];
+    assert_eq!(rust_type_for_response(&input, "foo"), "Foo".to_string());
+
+    input.params = vec![Param {
+        id: Some("foo".to_string()),
+        name: "foo".to_string(),
+        r#type: TypeRef::ResourceType(ResourceTypeRef::Link("http://example.com/#foo".parse().unwrap())),
+        style: ParamStyle::Header,
+        doc: None,
+        required: true,
+        repeating: false,
+        fixed: None,
+        path: None,
+        links: Vec::new(),
+    }];
+    assert_eq!(rust_type_for_response(&input, "foo"), "Foo".to_string());
+
+    input.params = vec![Param {
+        id: None,
+        name: "foo".to_string(),
+        r#type: TypeRef::ResourceType(ResourceTypeRef::Empty),
+        style: ParamStyle::Header,
+        doc: None,
+        required: true,
+        repeating: false,
+        fixed: None,
+        path: None,
+        links: Vec::new(),
+    }];
+    assert_eq!(rust_type_for_response(&input, "foo"), "url::Url".to_string());
 }
 
 pub fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config) -> Vec<String> {

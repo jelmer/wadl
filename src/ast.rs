@@ -87,7 +87,7 @@ pub struct Grammar {
     pub href: Url,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceTypeRef {
     Id(Id),
     Link(Url),
@@ -118,7 +118,7 @@ impl ResourceTypeRef {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeRef {
     Simple(String),
     ResourceType(ResourceTypeRef),
@@ -209,7 +209,7 @@ pub struct Doc {
     pub xmlns: Option<url::Url>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Link {
     pub resource_type: Option<ResourceTypeRef>,
 
@@ -228,7 +228,7 @@ pub struct Link {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param {
     pub style: ParamStyle,
     pub id: Option<Id>,
@@ -242,7 +242,7 @@ pub struct Param {
     pub links: Vec<Link>
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RepresentationDef {
     pub id: Option<Id>,
     pub media_type: Option<mime::Mime>,
@@ -295,6 +295,31 @@ impl Representation {
     }
 }
 
+#[test]
+fn test_representation_url() {
+    let base_url = Url::parse("http://example.com").unwrap();
+    let r = Representation::Reference(RepresentationRef::Id("foo".to_string()));
+    assert_eq!(r.url(&base_url).unwrap(), Url::parse("http://example.com#foo").unwrap());
+    let r = Representation::Reference(RepresentationRef::Link(Url::parse("http://example.com#foo").unwrap()));
+    assert_eq!(r.url(&base_url).unwrap(), Url::parse("http://example.com#foo").unwrap());
+    let r = Representation::Definition(RepresentationDef {
+        id: Some("foo".to_string()),
+        ..Default::default()
+    });
+    assert_eq!(r.url(&base_url).unwrap(), Url::parse("http://example.com#foo").unwrap());
+}
+
+#[test]
+fn test_representation_id() {
+    let r = Representation::Reference(RepresentationRef::Id("foo".to_string()));
+    assert_eq!(r.as_def(), None);
+    let r = Representation::Definition(RepresentationDef {
+        id: Some("foo".to_string()),
+        ..Default::default()
+    });
+    assert_eq!(r.as_def().unwrap().id, Some("foo".to_string()));
+}
+
 impl RepresentationDef {
     pub fn url(&self, base_url: &Url) -> Option<Url> {
         if let Some(id) = &self.id {
@@ -314,7 +339,7 @@ pub struct Request {
     pub representations: Vec<Representation>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Response {
     pub docs: Vec<Doc>,
     pub params: Vec<Param>,
