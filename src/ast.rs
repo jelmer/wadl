@@ -42,25 +42,28 @@ impl Application {
         }
     }
 
+    /// Iterate over all resources defined in this application.
     pub fn iter_resources(&self) -> impl Iterator<Item = (Url, &Resource)> {
         self.resources
             .iter()
             .flat_map(|rs| rs.resources.iter().map(|r| (r.url(rs.base.as_ref()), r)))
     }
 
+    /// Get a resource by its ID.
     pub fn get_resource_by_href(&self, href: &Url) -> Option<&Resource> {
         self.iter_resources()
             .find(|(url, _)| url == href)
             .map(|(_, r)| r)
     }
 
-    pub fn iter_all_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+    /// Iterate over all types defined in this application.
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
         self.iter_resources()
-            .flat_map(|(_u, r)| r.iter_all_types())
+            .flat_map(|(_u, r)| r.iter_referenced_types())
             .chain(
                 self.resource_types
                     .iter()
-                    .flat_map(|rt| rt.iter_all_types()),
+                    .flat_map(|rt| rt.iter_referenced_types()),
             )
     }
 }
@@ -166,6 +169,7 @@ pub struct Resource {
 }
 
 impl Resource {
+    /// Get the URL of this resource.
     pub fn url(&self, base_url: Option<&Url>) -> Url {
         if let Some(base_url) = base_url {
             base_url.join(self.path.as_ref().unwrap()).unwrap()
@@ -174,15 +178,39 @@ impl Resource {
         }
     }
 
+    /// Iterate over all parameters defined in this resource.
     pub(crate) fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
         self.params
             .iter()
             .chain(self.methods.iter().flat_map(|m| m.request.params.iter()))
     }
 
-    pub fn iter_all_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+    /// Iterate over all types referenced by this resource.
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
         self.iter_all_params().map(|p| p.r#type.clone())
     }
+}
+
+#[test]
+fn test_resource_url() {
+    let r = Resource {
+        id: None,
+        path: Some("/foo".to_string()),
+        r#type: vec![],
+        query_type: mime::APPLICATION_JSON,
+        methods: vec![],
+        docs: vec![],
+        subresources: vec![],
+        params: vec![],
+    };
+    assert_eq!(
+        r.url(Some(&Url::parse("http://example.com").unwrap())),
+        Url::parse("http://example.com/foo").unwrap()
+    );
+    assert_eq!(
+        r.url(Some(&Url::parse("http://example.com/bar").unwrap())),
+        Url::parse("http://example.com/foo").unwrap()
+    );
 }
 
 #[derive(Debug, Clone)]
@@ -373,7 +401,8 @@ impl ResourceType {
             .chain(self.methods.iter().flat_map(|m| m.request.params.iter()))
     }
 
-    pub fn iter_all_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+    /// Returns an iterator over all types referenced by this resource type.
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
         self.iter_all_params().map(|p| p.r#type.clone())
     }
 }
