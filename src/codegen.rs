@@ -2,7 +2,10 @@ use crate::ast::*;
 
 use crate::WADL_MIME_TYPE;
 
-// Convert wadl names (with dashes) to camel-case Rust names
+/// MIME type for XHTML
+pub const XHTML_MIME_TYPE: &str = "application/xhtml+xml";
+
+/// Convert wadl names (with dashes) to camel-case Rust names
 fn camel_case_name(name: &str) -> String {
     let mut it = name.chars().peekable();
     let mut result = String::new();
@@ -33,6 +36,7 @@ fn test_camel_case_name() {
     assert_eq!(camel_case_name("get-some-URL"), "GetSomeURL");
 }
 
+/// Convert wadl names (with dashes) to snake-case Rust names
 fn snake_case_name(name: &str) -> String {
     let mut name = name.to_string();
     name = name.replace('-', "_");
@@ -595,7 +599,7 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
 
 fn supported_representation_def(d: &RepresentationDef) -> bool {
     d.media_type != Some(WADL_MIME_TYPE.parse().unwrap())
-        && d.media_type != Some("application/xhtml+xml".parse().unwrap())
+        && d.media_type != Some(XHTML_MIME_TYPE.parse().unwrap())
 }
 
 pub fn rust_type_for_response(input: &Response, name: &str) -> String {
@@ -677,37 +681,39 @@ pub fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config
     lines
 }
 
-fn apply_map_fn(map_fn: &str, ret: &str, required: bool) -> String {
-    if map_fn.is_empty() {
-        ret.to_string()
-    } else if required {
-        if map_fn.starts_with('|') {
-            format!("({})({})", map_fn, ret)
+fn apply_map_fn(map_fn: Option<&str>, ret: &str, required: bool) -> String {
+    if let Some(map_fn) = map_fn {
+        if required {
+            if map_fn.starts_with('|') {
+                format!("({})({})", map_fn, ret)
+            } else {
+                format!("{}({})", map_fn, ret)
+            }
         } else {
-            format!("{}({})", map_fn, ret)
+            format!("{}.map({})", ret, map_fn)
         }
     } else {
-        format!("{}.map({})", ret, map_fn)
+        ret.to_string()
     }
 }
 
 #[test]
 fn test_apply_map_fn() {
-    assert_eq!(apply_map_fn("", "x", true), "x".to_string());
+    assert_eq!(apply_map_fn(None, "x", true), "x".to_string());
     assert_eq!(
-        apply_map_fn("Some", "x", true),
+        apply_map_fn(Some("Some"), "x", true),
         "Some(x)".to_string()
     );
     assert_eq!(
-        apply_map_fn("Some", "x", false),
+        apply_map_fn(Some("Some"), "x", false),
         "x.map(Some)".to_string()
     );
     assert_eq!(
-        apply_map_fn("|y|y+1", "x", true),
+        apply_map_fn(Some("|y|y+1"), "x", true),
         "(|y|y+1)(x)".to_string()
     );
     assert_eq!(
-        apply_map_fn("|y|y+1", "x", false),
+        apply_map_fn(Some("|y|y+1"), "x", false),
         "x.map(|y|y+1)".to_string()
     );
 }
@@ -967,15 +973,10 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         if return_types.is_empty() {
             lines.push("        Ok(())\n".to_string());
         } else if return_types.len() == 1 {
-            if let Some(map_fn) = map_fn.as_ref() {
-                lines.push(format!("                Ok({})\n", apply_map_fn(map_fn, &return_types[0].0, return_types[0].1)));
-            } else {
-                lines.push(format!("                Ok({})\n", return_types[0].0));
-            }
-        } else if let Some(map_fn) = map_fn.as_ref() {
-            lines.push(format!("                 Ok({})\n", apply_map_fn(map_fn, &return_types.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", "), true)));
+            lines.push(format!("                Ok({})\n", apply_map_fn(map_fn.as_deref(), &return_types[0].0, return_types[0].1)));
         } else {
-            lines.push(format!("                Ok(({}))\n", return_types.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", ")));
+            let v = format!("({})", return_types.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", "));
+            lines.push(format!("                 Ok({})\n", apply_map_fn(map_fn.as_deref(), &v, true)));
         }
         lines.push("            }\n".to_string());
     }
