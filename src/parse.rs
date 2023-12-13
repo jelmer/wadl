@@ -145,13 +145,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     }
                 }).collect::<Vec<_>>();
                 let name = element.attributes.get("name").cloned().unwrap();
-                let r#type = if let Some(t) = element.attributes.get("type").cloned() {
-                    Some(TypeRef::Simple(t))
-                } else if !links.is_empty() {
-                    Some(TypeRef::ResourceType(links[0].resource_type.clone().unwrap_or(ResourceTypeRef::Empty)))
-                } else {
-                    None
-                };
+                let r#type = element.attributes.get("type").cloned().unwrap_or_else(|| "string".to_string());
                 let path = element.attributes.get("path").cloned();
                 let required = element
                     .attributes
@@ -175,12 +169,6 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     );
                 }
                 let doc = parse_docs(element);
-                let r#type = match (r#type, options) {
-                    (_, Some(options)) => TypeRef::Options(options),
-                    (Some(t), None) => t,
-                    // The specification says the default is xsd:string
-                    (None, None) => TypeRef::Simple("string".to_string()),
-                };
                 params.push(Param {
                     style,
                     id,
@@ -191,6 +179,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     repeating,
                     fixed,
                     links,
+                    options,
                     doc: if doc.len() == 1 {
                         Some(doc.into_iter().next().unwrap())
                     } else {

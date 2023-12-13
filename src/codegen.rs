@@ -359,12 +359,10 @@ fn generate_representation(input: &RepresentationDef, config: &Config, options_n
     for param in &input.params {
         let field_name = snake_case_name(param.name.as_str());
         // We expect to support multiple types here in the future
-        #[allow(clippy::single_match)]
-        match &param.r#type {
-            TypeRef::ResourceType(r) => {
+        for link in &param.links {
+            if let Some(r) = link.resource_type.as_ref() {
                 lines.extend(generate_resource_type_ref_accessors(&field_name, r, param, config));
             }
-            _ => {}
         }
     }
 
@@ -418,15 +416,19 @@ fn simple_type_rust_type(type_name: &str, param: &Param, config: &Config) -> (St
 fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl Fn(&ResourceTypeRef) -> String, options_names: &HashMap<Options, String>) -> (String, Vec<String>) {
     assert!(param.fixed.is_none());
 
-    let (mut param_type, annotations) = match &param.r#type {
-        TypeRef::Simple(name) => simple_type_rust_type(name, param, config),
-        TypeRef::ResourceType(r) => (resource_type_rust_type(r), vec![]),
-        TypeRef::Options(os) => {
-            let options_name = options_names.get(os).unwrap_or_else(|| {
-                panic!("Unknown options {:?} for {}", os, param.name);
-            });
-            (options_name.clone(), vec![])
+    let (mut param_type, annotations) = if !param.links.is_empty() {
+        if let Some(rt) = param.links[0].resource_type.as_ref() {
+            (resource_type_rust_type(rt), vec![])
+        } else {
+            ("url::Url".to_string(), vec![])
         }
+    } else if let Some(os) = param.options.as_ref() {
+        let options_name = options_names.get(os).unwrap_or_else(|| {
+            panic!("Unknown options {:?} for {}", os, param.name);
+        });
+        (options_name.clone(), vec![])
+    } else {
+        simple_type_rust_type(param.r#type.as_str(), param, config)
     };
 
     if param.repeating {
@@ -446,15 +448,23 @@ fn test_param_rust_type() {
     let rt = ResourceTypeRef::from_str("https://api.launchpad.net/1.0/#person").unwrap();
     let mut param = Param {
         name: "person".to_string(),
-        r#type: TypeRef::ResourceType(rt),
+        r#type: "string".to_string(),
         required: true,
         repeating: false,
         fixed: None,
         doc: None,
+        options: None,
         id: None,
-        links: vec![],
         style: ParamStyle::Plain,
-        path: None
+        path: None,
+        links: vec![
+            crate::ast::Link {
+                resource_type: Some(rt),
+                relation: None,
+                reverse_relation: None,
+                doc: None,
+            },
+        ]
     };
     let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
     assert_eq!(param_type, "Person");
@@ -469,19 +479,21 @@ fn test_param_rust_type() {
     assert_eq!(param_type, "Vec<Person>");
 
     param.repeating = false;
-    param.r#type = TypeRef::Simple("string".to_string());
+    param.r#type = "string".to_string();
+    param.links = vec![];
     let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
     assert_eq!(param_type, "String");
 
-    param.r#type = TypeRef::Simple("binary".to_string());
+    param.r#type = "binary".to_string();
     let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
     assert_eq!(param_type, "Vec<u8>");
 
-    param.r#type = TypeRef::Simple("xsd:date".to_string());
+    param.r#type = "xsd:date".to_string();
     let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
     assert_eq!(param_type, "chrono::NaiveDate");
 
-    param.r#type = TypeRef::Options(Options::from(vec!["one".to_string(), "two".to_string()]));
+    param.r#type = "string".to_string();
+    param.options = Some(Options::from(vec!["one".to_string(), "two".to_string()]));
     let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &maplit::hashmap! {
         Options::from(vec!["one".to_string(), "two".to_string()]) => "MyOptions".to_string(),
     });
@@ -597,20 +609,11 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
         let param_name = escape_rust_reserved(param_name.as_str());
 
         let (param_type, annotations) = param_rust_type(param, config, |_x| "url::Url".to_string(), options_names);
-        let comment = match &param.r#type {
-            TypeRef::Simple(name) => format!("was: {}", name),
-            TypeRef::ResourceType(r) => match r {
-                ResourceTypeRef::Id(id) => format!("resource type id: {}", id),
-                ResourceTypeRef::Link(href) => format!("resource type link: {}", href),
-                ResourceTypeRef::Empty => "was: empty link".to_string(),
-            },
-            TypeRef::Options(options) => format!("options: {:?}", options),
-        };
 
         // We provide accessors for resource types
-        let is_pub = !matches!(&param.r#type, TypeRef::ResourceType(_));
+        let is_pub = param.links.is_empty();
 
-        lines.push(format!("    // {}\n", comment));
+        lines.push(format!("    // was: {}\n", param.r#type));
         for doc in &param.doc {
             lines.extend(generate_doc(doc, 1, config));
         }
@@ -661,7 +664,7 @@ fn test_generate_representation() {
         id: Some("person".to_string()),
         params: vec![Param {
             name: "name".to_string(),
-            r#type: TypeRef::Simple("string".to_string()),
+            r#type: "string".to_string(),
             style: ParamStyle::Plain,
             required: true,
             doc: Some(Doc::new("The name of the person".to_string())),
@@ -670,10 +673,11 @@ fn test_generate_representation() {
             repeating: false,
             fixed: None,
             links: vec![],
+            options: None
         },
         Param{
             name: "age".to_string(),
-            r#type: TypeRef::Simple("xs:int".to_string()),
+            r#type: "xs:int".to_string(),
             required: true,
             doc: Some(Doc::new("The age of the person".to_string())),
             style: ParamStyle::Query,
@@ -681,7 +685,8 @@ fn test_generate_representation() {
             id: None,
             repeating: false,
             fixed: None,
-        links: vec![],
+            links: vec![],
+            options: None
         }]
     };
 
@@ -791,7 +796,7 @@ fn test_rust_type_for_response() {
         params: vec![Param {
         id: Some("foo".to_string()),
         name: "foo".to_string(),
-        r#type: TypeRef::Simple("string".to_string()),
+        r#type: "string".to_string(),
         style: ParamStyle::Header,
         doc: None,
         required: true,
@@ -799,6 +804,7 @@ fn test_rust_type_for_response() {
         fixed: None,
         path: None,
         links: Vec::new(),
+        options: None,
         }],
         ..Default::default()
     };
@@ -811,7 +817,7 @@ fn test_rust_type_for_response() {
         Param {
             id: Some("foo".to_string()),
             name: "foo".to_string(),
-            r#type: TypeRef::Simple("string".to_string()),
+            r#type: "string".to_string(),
             style: ParamStyle::Header,
             doc: None,
             required: true,
@@ -819,11 +825,12 @@ fn test_rust_type_for_response() {
             fixed: None,
             path: None,
             links: Vec::new(),
+            options: None
         },
         Param {
             id: Some("bar".to_string()),
             name: "bar".to_string(),
-            r#type: TypeRef::Simple("string".to_string()),
+            r#type: "string".to_string(),
             style: ParamStyle::Header,
             doc: None,
             required: true,
@@ -831,6 +838,7 @@ fn test_rust_type_for_response() {
             fixed: None,
             path: None,
             links: Vec::new(),
+            options: None
         },
     ];
     assert_eq!(
@@ -841,43 +849,66 @@ fn test_rust_type_for_response() {
     input.params = vec![Param {
         id: Some("foo".to_string()),
         name: "foo".to_string(),
-        r#type: TypeRef::ResourceType(ResourceTypeRef::Id("foo".to_string())),
+        r#type: "string".to_string(),
         style: ParamStyle::Header,
         doc: None,
         required: true,
         repeating: false,
         fixed: None,
         path: None,
-        links: Vec::new(),
-
+        links: vec![
+            Link {
+                relation: None,
+                reverse_relation: None,
+                resource_type: Some("http://example.com/#foo".parse().unwrap()),
+                doc: None,
+            },
+        ],
+        options: None,
     }];
     assert_eq!(rust_type_for_response(&input, "foo", &HashMap::new()), "Foo".to_string());
 
     input.params = vec![Param {
         id: Some("foo".to_string()),
         name: "foo".to_string(),
-        r#type: TypeRef::ResourceType(ResourceTypeRef::Link("http://example.com/#foo".parse().unwrap())),
+        r#type: "string".to_string(),
         style: ParamStyle::Header,
         doc: None,
         required: true,
         repeating: false,
         fixed: None,
         path: None,
-        links: Vec::new(),
+        links: vec![
+            Link {
+                relation: None,
+                reverse_relation: None,
+                resource_type: Some("http://example.com/#foo".parse().unwrap()),
+                doc: None,
+            },
+        ],
+        options: None,
     }];
     assert_eq!(rust_type_for_response(&input, "foo", &HashMap::new()), "Foo".to_string());
 
     input.params = vec![Param {
         id: None,
         name: "foo".to_string(),
-        r#type: TypeRef::ResourceType(ResourceTypeRef::Empty),
+        r#type: "string".to_string(),
         style: ParamStyle::Header,
         doc: None,
         required: true,
         repeating: false,
         fixed: None,
+        options: None,
         path: None,
-        links: Vec::new(),
+        links: vec![
+            Link {
+                relation: None,
+                reverse_relation: None,
+                resource_type: None,
+                doc: None,
+            },
+        ],
     }];
     assert_eq!(rust_type_for_response(&input, "foo", &HashMap::new()), "url::Url".to_string());
 }
@@ -1072,9 +1103,10 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options
             let param_name = snake_case_name(param_name);
             let param_name = escape_rust_reserved(param_name.as_str());
             let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type, options_names);
-            let value = match param.r#type {
-                TypeRef::ResourceType(_) => { format!("&{}.url().to_string()", param_name) },
-                TypeRef::Simple(_) | TypeRef::Options(_) => { format!("&{}.to_string()", param_name) }
+            let value = if !param.links.is_empty() {
+                format!("&{}.url().to_string()", param_name)
+            } else {
+                format!("&{}.to_string()", param_name)
             };
 
             let mut indent = 0;
@@ -1204,23 +1236,23 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options
         for param in response.params.iter() {
             match &param.style {
                 ParamStyle::Header => {
-                    match &param.r#type {
-                        TypeRef::ResourceType(r) => {
-                            if param.required {
-                                return_types.push((format!(
-                                    "{}(resp.headers().get(\"{}\")?.to_str()?.parse().unwrap())",
-                                    resource_type_rust_type(r),
-                                    param.name
-                                ), true));
-                            } else {
-                                return_types.push((format!(
-                                    "resp.headers().get(\"{}\").map(|x| {}(x.to_str().unwrap().parse().unwrap()))",
-                                    param.name,
-                                    resource_type_rust_type(r),
-                                ), false));
-                            }
+                    if !param.links.is_empty() {
+                        let r = &param.links[0].resource_type.as_ref().unwrap();
+                        if param.required {
+                            return_types.push((format!(
+                                "{}(resp.headers().get(\"{}\")?.to_str()?.parse().unwrap())",
+                                resource_type_rust_type(r),
+                                param.name
+                            ), true));
+                        } else {
+                            return_types.push((format!(
+                                "resp.headers().get(\"{}\").map(|x| {}(x.to_str().unwrap().parse().unwrap()))",
+                                param.name,
+                                resource_type_rust_type(r),
+                            ), false));
                         }
-                        _ => todo!("header param type {:?} for {} in {:?}", param.r#type, param.name, input.id),
+                    } else {
+                        todo!("header param type {:?} for {} in {:?}", param.r#type, param.name, input.id);
                     }
                 }
                 t => todo!("param style {:?}", t),
@@ -1466,7 +1498,7 @@ pub fn generate(app: &Application, config: &Config) -> String {
     let mut options = HashMap::new();
 
     for param in app.iter_all_params() {
-        if let TypeRef::Options(os) = &param.r#type {
+        if let Some(os) = &param.options {
             if options.contains_key(os) {
                 continue;
             }

@@ -57,7 +57,7 @@ impl Application {
     }
 
     /// Iterate over all types defined in this application.
-    pub fn iter_referenced_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = String> + '_ {
         self.iter_resources()
             .flat_map(|(_u, r)| r.iter_referenced_types())
             .chain(
@@ -192,34 +192,6 @@ impl From<Vec<&str>> for Options {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TypeRef {
-    Simple(String),
-    ResourceType(ResourceTypeRef),
-    Options(Options)
-}
-
-impl TypeRef {
-    pub fn as_options(&self) -> Option<&Options> {
-        match self {
-            TypeRef::Options(o) => Some(o),
-            _ => None,
-        }
-    }
-}
-
-impl std::str::FromStr for TypeRef {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(s) = s.strip_prefix('#') {
-            Ok(TypeRef::ResourceType(ResourceTypeRef::Id(s.to_string())))
-        } else {
-            Ok(TypeRef::Simple(s.to_string()))
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Resource {
     /// The ID of the resource.
@@ -268,7 +240,7 @@ impl Resource {
     }
 
     /// Iterate over all types referenced by this resource.
-    pub fn iter_referenced_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = String> + '_ {
         self.iter_all_params().map(|p| p.r#type.clone())
     }
 }
@@ -359,13 +331,14 @@ pub struct Param {
     pub style: ParamStyle,
     pub id: Option<Id>,
     pub name: String,
-    pub r#type: TypeRef,
+    pub r#type: String,
     pub path: Option<String>,
     pub required: bool,
     pub repeating: bool,
     pub fixed: Option<String>,
     pub doc: Option<Doc>,
-    pub links: Vec<Link>
+    pub links: Vec<Link>,
+    pub options: Option<Options>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -530,7 +503,7 @@ impl ResourceType {
     }
 
     /// Returns an iterator over all types referenced by this resource type.
-    pub fn iter_referenced_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = String> + '_ {
         self.iter_all_params().map(|p| p.r#type.clone())
     }
 }
