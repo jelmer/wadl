@@ -627,6 +627,7 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
             param_name,
             param_type
         ));
+        lines.push("\n".to_string());
     }
 
     lines.push("}\n".to_string());
