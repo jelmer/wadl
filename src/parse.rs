@@ -178,7 +178,8 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                 let r#type = match (r#type, options) {
                     (_, Some(options)) => TypeRef::Options(options),
                     (Some(t), None) => t,
-                    (None, None) => TypeRef::NoType,
+                    // The specification says the default is xsd:string
+                    (None, None) => TypeRef::Simple("string".to_string()),
                 };
                 params.push(Param {
                     style,

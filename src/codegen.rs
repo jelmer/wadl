@@ -393,39 +393,39 @@ fn test_resource_type_rust_type() {
     assert_eq!(resource_type_rust_type(&rt), "Person");
 }
 
+fn simple_type_rust_type(type_name: &str, param: &Param, config: &Config) -> (String, Vec<String>) {
+    let tn = if let Some(guess_name) = config.guess_type_name.as_ref() {
+        guess_name(param.name.as_str())
+    } else {
+        None
+    };
+
+    if let Some(tn) = tn {
+        return (tn, vec![]);
+    }
+
+    match type_name.split_once(':').map_or(type_name, |(_, n)| n) {
+        "date" => ("chrono::NaiveDate".to_string(), vec![]),
+        "dateTime" => ("chrono::DateTime<chrono::Utc>".to_string(), vec![]),
+        "time" => ("(chrono::Time".to_string(), vec![]),
+        "int" => ("i32".to_string(), vec![]),
+        "string" => ("String".to_string(), vec![]),
+        "binary" => ("Vec<u8>".to_string(), vec![]),
+        u => panic!("Unknown type: {}", u),
+    }
+}
+
 fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl Fn(&ResourceTypeRef) -> String, options_names: &HashMap<Options, String>) -> (String, Vec<String>) {
     assert!(param.fixed.is_none());
 
     let (mut param_type, annotations) = match &param.r#type {
-        TypeRef::Simple(name) => match name.as_str().split_once(':').map_or(name.as_str(), |(_, n)| n) {
-            "date" => ("chrono::NaiveDate".to_string(), vec![]),
-            "dateTime" => ("chrono::DateTime<chrono::Utc>".to_string(), vec![]),
-            "time" => ("(chrono::Time".to_string(), vec![]),
-            "int" => ("i32".to_string(), vec![]),
-            "string" => ("String".to_string(), vec![]),
-            "binary" => ("Vec<u8>".to_string(), vec![]),
-            u => panic!("Unknown type: {}", u),
-        },
+        TypeRef::Simple(name) => simple_type_rust_type(name, param, config),
         TypeRef::ResourceType(r) => (resource_type_rust_type(r), vec![]),
         TypeRef::Options(os) => {
             let options_name = options_names.get(os).unwrap_or_else(|| {
                 panic!("Unknown options {:?} for {}", os, param.name);
             });
             (options_name.clone(), vec![])
-        }
-        TypeRef::NoType => {
-            let tn = if let Some(guess_name) = config.guess_type_name.as_ref() {
-                guess_name(param.name.as_str())
-            } else {
-                None
-            };
-
-            if let Some(tn) = tn {
-                (tn, vec![])
-            } else {
-                log::warn!("No type for parameter: {}", param.name);
-                ("serde_json::Value".to_string(), vec![])
-            }
         }
     };
 
@@ -605,7 +605,6 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
                 ResourceTypeRef::Empty => "was: empty link".to_string(),
             },
             TypeRef::Options(options) => format!("options: {:?}", options),
-            TypeRef::NoType => "no type for parameter in WADL".to_string(),
         };
 
         // We provide accessors for resource types
@@ -1075,7 +1074,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options
             let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type, options_names);
             let value = match param.r#type {
                 TypeRef::ResourceType(_) => { format!("&{}.url().to_string()", param_name) },
-                TypeRef::Simple(_) | TypeRef::NoType | TypeRef::Options(_) => { format!("&{}.to_string()", param_name) }
+                TypeRef::Simple(_) | TypeRef::Options(_) => { format!("&{}.to_string()", param_name) }
             };
 
             let mut indent = 0;

@@ -196,7 +196,6 @@ impl From<Vec<&str>> for Options {
 pub enum TypeRef {
     Simple(String),
     ResourceType(ResourceTypeRef),
-    NoType,
     Options(Options)
 }
 
