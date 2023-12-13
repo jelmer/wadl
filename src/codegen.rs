@@ -1,9 +1,13 @@
 use crate::ast::*;
+use std::collections::HashMap;
 
 use crate::WADL_MIME_TYPE;
 
-// Convert wadl names (with dashes) to camel-case Rust names
-fn camel_case_name(name: &str) -> String {
+/// MIME type for XHTML
+pub const XHTML_MIME_TYPE: &str = "application/xhtml+xml";
+
+/// Convert wadl names (with dashes) to camel-case Rust names
+pub fn camel_case_name(name: &str) -> String {
     let mut it = name.chars().peekable();
     let mut result = String::new();
     // Uppercase the first letter
@@ -33,7 +37,8 @@ fn test_camel_case_name() {
     assert_eq!(camel_case_name("get-some-URL"), "GetSomeURL");
 }
 
-fn snake_case_name(name: &str) -> String {
+/// Convert wadl names (with dashes) to snake-case Rust names
+pub fn snake_case_name(name: &str) -> String {
     let mut name = name.to_string();
     name = name.replace('-', "_");
     let it = name.chars().peekable();
@@ -338,14 +343,10 @@ fn generate_resource_type_ref_accessors(field_name: &str, input: &ResourceTypeRe
     lines
 }
 
-fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<String> {
+fn generate_representation(input: &RepresentationDef, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
     let mut lines = vec![];
-    for doc in &input.docs {
-        lines.extend(generate_doc(doc, 0, config));
-    }
-
     if input.media_type == Some(mime::APPLICATION_JSON) {
-        lines.extend(generate_representation_struct_json(input, config));
+        lines.extend(generate_representation_struct_json(input, config, options_names));
     } else {
         panic!("Unknown media type: {:?}", input.media_type);
     }
@@ -358,12 +359,10 @@ fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<St
     for param in &input.params {
         let field_name = snake_case_name(param.name.as_str());
         // We expect to support multiple types here in the future
-        #[allow(clippy::single_match)]
-        match &param.r#type {
-            TypeRef::ResourceType(r) => {
+        for link in &param.links {
+            if let Some(r) = link.resource_type.as_ref() {
                 lines.extend(generate_resource_type_ref_accessors(&field_name, r, param, config));
             }
-            _ => {}
         }
     }
 
@@ -392,38 +391,42 @@ fn test_resource_type_rust_type() {
     assert_eq!(resource_type_rust_type(&rt), "Person");
 }
 
-fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl Fn(&ResourceTypeRef) -> String) -> (String, Vec<String>) {
-    assert!(param.id.is_none());
-    assert!(param.fixed.is_none());
+fn simple_type_rust_type(type_name: &str, param: &Param, config: &Config) -> (String, Vec<String>) {
+    let tn = if let Some(override_name) = config.override_type_name.as_ref() {
+        override_name(type_name, param.name.as_str())
+    } else {
+        None
+    };
 
-    let (mut param_type, annotations) = match &param.r#type {
-        TypeRef::Simple(name) => match name.as_str() {
-            "xsd:date" => ("chrono::NaiveDate".to_string(), vec![]),
-            "xsd:dateTime" => ("chrono::DateTime<chrono::Utc>".to_string(), vec![]),
-            "xsd:time" => ("(chrono::Time".to_string(), vec![]),
-            "string" => ("String".to_string(), vec![]),
-            "binary" => ("Vec<u8>".to_string(), vec![]),
-            u => panic!("Unknown type: {}", u),
-        },
-        TypeRef::ResourceType(r) => (resource_type_rust_type(r), vec![]),
-        TypeRef::Options(_options) => {
-            // TODO: define an enum for this
-            ("String".to_string(), vec![])
-        }
-        TypeRef::NoType => {
-            let tn = if let Some(guess_name) = config.guess_type_name.as_ref() {
-                guess_name(param.name.as_str())
-            } else {
-                None
-            };
+    if let Some(tn) = tn {
+        return (tn, vec![]);
+    }
 
-            if let Some(tn) = tn {
-                (tn, vec![])
-            } else {
-                log::warn!("No type for parameter: {}", param.name);
-                ("serde_json::Value".to_string(), vec![])
-            }
+    match type_name.split_once(':').map_or(type_name, |(_, n)| n) {
+        "date" => ("chrono::NaiveDate".to_string(), vec![]),
+        "dateTime" => ("chrono::DateTime<chrono::Utc>".to_string(), vec![]),
+        "time" => ("(chrono::Time".to_string(), vec![]),
+        "int" => ("i32".to_string(), vec![]),
+        "string" => ("String".to_string(), vec![]),
+        "binary" => ("Vec<u8>".to_string(), vec![]),
+        u => panic!("Unknown type: {}", u),
+    }
+}
+
+fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl Fn(&ResourceTypeRef) -> String, options_names: &HashMap<Options, String>) -> (String, Vec<String>) {
+    let (mut param_type, annotations) = if !param.links.is_empty() {
+        if let Some(rt) = param.links[0].resource_type.as_ref() {
+            (resource_type_rust_type(rt), vec![])
+        } else {
+            ("url::Url".to_string(), vec![])
         }
+    } else if let Some(os) = param.options.as_ref() {
+        let options_name = options_names.get(os).unwrap_or_else(|| {
+            panic!("Unknown options {:?} for {}", os, param.name);
+        });
+        (options_name.clone(), vec![])
+    } else {
+        simple_type_rust_type(param.r#type.as_str(), param, config)
     };
 
     if param.repeating {
@@ -436,6 +439,65 @@ fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl
 
     (param_type, annotations)
 }
+
+#[test]
+fn test_param_rust_type() {
+    use std::str::FromStr;
+    let rt = ResourceTypeRef::from_str("https://api.launchpad.net/1.0/#person").unwrap();
+    let mut param = Param {
+        name: "person".to_string(),
+        r#type: "string".to_string(),
+        required: true,
+        repeating: false,
+        fixed: None,
+        doc: None,
+        options: None,
+        id: None,
+        style: ParamStyle::Plain,
+        path: None,
+        links: vec![
+            crate::ast::Link {
+                resource_type: Some(rt),
+                relation: None,
+                reverse_relation: None,
+                doc: None,
+            },
+        ]
+    };
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "Person");
+
+    param.required = false;
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "Option<Person>");
+
+    param.repeating = true;
+    param.required = true;
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "Vec<Person>");
+
+    param.repeating = false;
+    param.r#type = "string".to_string();
+    param.links = vec![];
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "String");
+
+    param.r#type = "binary".to_string();
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "Vec<u8>");
+
+    param.r#type = "xsd:date".to_string();
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "chrono::NaiveDate");
+
+    param.r#type = "string".to_string();
+    param.options = Some(Options::from(vec!["one".to_string(), "two".to_string()]));
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &maplit::hashmap! {
+        Options::from(vec!["one".to_string(), "two".to_string()]) => "MyOptions".to_string(),
+    });
+    assert_eq!(param_type, "MyOptions");
+}
+
 
 fn readonly_rust_type(name: &str) -> String {
     if name.starts_with("Option<") && name.ends_with('>') {
@@ -516,12 +578,18 @@ fn test_representation_rust_type() {
     assert_eq!(representation_rust_type(&rt), "Person");
 }
 
-fn generate_representation_struct_json(input: &RepresentationDef, config: &Config) -> Vec<String> {
+fn generate_representation_struct_json(input: &RepresentationDef, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
     let name = input.id.as_ref().unwrap().as_str();
     let name = camel_case_name(name);
 
-    lines.push(format!("/// Representation of the `{}` resource\n", input.id.as_ref().unwrap()));
+    for doc in &input.docs {
+        lines.extend(generate_doc(doc, 0, config));
+    }
+
+    if input.docs.is_empty() {
+        lines.push(format!("/// Representation of the `{}` resource\n", input.id.as_ref().unwrap()));
+    }
 
     let derive_default = input.params.iter().all(|x| !x.required);
 
@@ -538,21 +606,12 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
 
         let param_name = escape_rust_reserved(param_name.as_str());
 
-        let (param_type, annotations) = param_rust_type(param, config, |_x| "url::Url".to_string());
-        let comment = match &param.r#type {
-            TypeRef::Simple(name) => format!("was: {}", name),
-            TypeRef::ResourceType(r) => match r {
-                ResourceTypeRef::Id(id) => format!("resource type id: {}", id),
-                ResourceTypeRef::Link(href) => format!("resource type link: {}", href),
-                ResourceTypeRef::Empty => "was: empty link".to_string(),
-            },
-            TypeRef::Options(options) => format!("options: {:?}", options),
-            TypeRef::NoType => "no type for parameter in WADL".to_string(),
-        };
+        let (param_type, annotations) = param_rust_type(param, config, |_x| "url::Url".to_string(), options_names);
 
-        let is_pub = !matches!(&param.r#type, TypeRef::ResourceType(_));
+        // We provide accessors for resource types
+        let is_pub = param.links.is_empty();
 
-        lines.push(format!("    // {}\n", comment));
+        lines.push(format!("    // was: {}\n", param.r#type));
         for doc in &param.doc {
             lines.extend(generate_doc(doc, 1, config));
         }
@@ -566,6 +625,7 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
             param_name,
             param_type
         ));
+        lines.push("\n".to_string());
     }
 
     lines.push("}\n".to_string());
@@ -593,12 +653,96 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
     lines
 }
 
-fn supported_representation_def(d: &RepresentationDef) -> bool {
-    d.media_type != Some(WADL_MIME_TYPE.parse().unwrap())
-        && d.media_type != Some("application/xhtml+xml".parse().unwrap())
+#[test]
+fn test_generate_representation() {
+    let input = RepresentationDef {
+        media_type: Some("application/json".parse().unwrap()),
+        element: None,
+        profile: None,
+        docs: vec![],
+        id: Some("person".to_string()),
+        params: vec![Param {
+            name: "name".to_string(),
+            r#type: "string".to_string(),
+            style: ParamStyle::Plain,
+            required: true,
+            doc: Some(Doc::new("The name of the person".to_string())),
+            path: None,
+            id: None,
+            repeating: false,
+            fixed: None,
+            links: vec![],
+            options: None
+        },
+        Param{
+            name: "age".to_string(),
+            r#type: "xs:int".to_string(),
+            required: true,
+            doc: Some(Doc::new("The age of the person".to_string())),
+            style: ParamStyle::Query,
+            path: None,
+            id: None,
+            repeating: false,
+            fixed: None,
+            links: vec![],
+            options: None
+        }]
+    };
+
+    let config = Config::default();
+
+    let lines = generate_representation_struct_json(&input, &config, &HashMap::new());
+
+    assert_eq!(
+        lines,
+        vec![
+            "/// Representation of the `person` resource\n".to_string(),
+            "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n".to_string(),
+            "pub struct Person {\n".to_string(),
+            "    // was: string\n".to_string(),
+            "    /// The name of the person\n".to_string(),
+            "    pub name: String,\n".to_string(),
+            "\n".to_string(),
+            "    // was: xs:int\n".to_string(),
+            "    /// The age of the person\n".to_string(),
+            "    pub age: i32,\n".to_string(),
+            "\n".to_string(),
+            "}\n".to_string(),
+            "\n".to_string(),
+        ]
+    );
 }
 
-pub fn rust_type_for_response(input: &Response, name: &str) -> String {
+fn supported_representation_def(d: &RepresentationDef) -> bool {
+    d.media_type != Some(WADL_MIME_TYPE.parse().unwrap())
+        && d.media_type != Some(XHTML_MIME_TYPE.parse().unwrap())
+        && d.media_type != Some(mime::APPLICATION_WWW_FORM_URLENCODED)
+        && d.media_type != Some(mime::MULTIPART_FORM_DATA)
+}
+
+#[test]
+fn test_supported_representation_def() {
+    let mut d = RepresentationDef::default();
+    d.media_type = Some(WADL_MIME_TYPE.parse().unwrap());
+    assert!(!supported_representation_def(&d));
+
+    d.media_type = Some(XHTML_MIME_TYPE.parse().unwrap());
+    assert!(!supported_representation_def(&d));
+
+    d.media_type = Some("application/json".parse().unwrap());
+    assert!(supported_representation_def(&d));
+}
+
+/// Generate the Rust type for a representation
+///
+/// # Arguments
+/// * `input` - The representation to generate the Rust type for
+/// * `name` - The name of the representation
+///
+/// # Returns
+///
+/// The Rust type for the representation
+pub fn rust_type_for_response(input: &Response, name: &str, options_names: &HashMap<Options, String>) -> String {
     let representations = input
         .representations
         .iter()
@@ -619,7 +763,7 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
 
                 let mut ret = Vec::new();
                 for param in &input.params {
-                    let (param_type, _annotations) = param_rust_type(param, &Config::default(), resource_type_rust_type);
+                    let (param_type, _annotations) = param_rust_type(param, &Config::default(), resource_type_rust_type, options_names);
                     ret.push(param_type);
                 }
                 if ret.len() == 1 {
@@ -632,7 +776,7 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
     } else if representations.is_empty() {
         let mut ret = Vec::new();
         for param in &input.params {
-            let (param_type, _annotations) = param_rust_type(param, &Config::default(), resource_type_rust_type);
+            let (param_type, _annotations) = param_rust_type(param, &Config::default(), resource_type_rust_type, options_names);
             ret.push(param_type);
         }
         if ret.len() == 1 {
@@ -647,6 +791,129 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
             representations
         );
     }
+}
+
+#[test]
+fn test_rust_type_for_response() {
+    let mut input = Response {
+        params: vec![Param {
+        id: Some("foo".to_string()),
+        name: "foo".to_string(),
+        r#type: "string".to_string(),
+        style: ParamStyle::Header,
+        doc: None,
+        required: true,
+        repeating: false,
+        fixed: None,
+        path: None,
+        links: Vec::new(),
+        options: None,
+        }],
+        ..Default::default()
+    };
+    assert_eq!(
+        rust_type_for_response(&input, "foo", &HashMap::new()),
+        "String".to_string()
+    );
+
+    input.params = vec![
+        Param {
+            id: Some("foo".to_string()),
+            name: "foo".to_string(),
+            r#type: "string".to_string(),
+            style: ParamStyle::Header,
+            doc: None,
+            required: true,
+            repeating: false,
+            fixed: None,
+            path: None,
+            links: Vec::new(),
+            options: None
+        },
+        Param {
+            id: Some("bar".to_string()),
+            name: "bar".to_string(),
+            r#type: "string".to_string(),
+            style: ParamStyle::Header,
+            doc: None,
+            required: true,
+            repeating: false,
+            fixed: None,
+            path: None,
+            links: Vec::new(),
+            options: None
+        },
+    ];
+    assert_eq!(
+        rust_type_for_response(&input, "foo", &HashMap::new()),
+        "(String, String)".to_string()
+    );
+
+    input.params = vec![Param {
+        id: Some("foo".to_string()),
+        name: "foo".to_string(),
+        r#type: "string".to_string(),
+        style: ParamStyle::Header,
+        doc: None,
+        required: true,
+        repeating: false,
+        fixed: None,
+        path: None,
+        links: vec![
+            Link {
+                relation: None,
+                reverse_relation: None,
+                resource_type: Some("http://example.com/#foo".parse().unwrap()),
+                doc: None,
+            },
+        ],
+        options: None,
+    }];
+    assert_eq!(rust_type_for_response(&input, "foo", &HashMap::new()), "Foo".to_string());
+
+    input.params = vec![Param {
+        id: Some("foo".to_string()),
+        name: "foo".to_string(),
+        r#type: "string".to_string(),
+        style: ParamStyle::Header,
+        doc: None,
+        required: true,
+        repeating: false,
+        fixed: None,
+        path: None,
+        links: vec![
+            Link {
+                relation: None,
+                reverse_relation: None,
+                resource_type: Some("http://example.com/#foo".parse().unwrap()),
+                doc: None,
+            },
+        ],
+        options: None,
+    }];
+    assert_eq!(rust_type_for_response(&input, "foo", &HashMap::new()), "Foo".to_string());
+
+    input.params = vec![Param {
+        id: None,
+        name: "foo".to_string(),
+        r#type: "string".to_string(),
+        style: ParamStyle::Header,
+        doc: None,
+        required: true,
+        repeating: false,
+        fixed: None,
+        options: None,
+        path: None,
+        links: vec![
+            Link {
+                relation: None,
+                reverse_relation: None,
+                resource_type: None,
+                doc: None,
+            },
+        ],
+    }];
+    assert_eq!(rust_type_for_response(&input, "foo", &HashMap::new()), "url::Url".to_string());
 }
 
 pub fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config) -> Vec<String> {
@@ -677,42 +944,153 @@ pub fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config
     lines
 }
 
-fn apply_map_fn(map_fn: &str, ret: &str, required: bool) -> String {
-    if map_fn.is_empty() {
-        ret.to_string()
-    } else if required {
-        if map_fn.starts_with('|') {
-            format!("({})({})", map_fn, ret)
+#[test]
+fn test_format_arg_doc() {
+    let config = Config::default();
+    assert_eq!(
+        format_arg_doc("foo", None, &config),
+        vec!["    /// * `foo`\n".to_string()]
+    );
+    assert_eq!(
+        format_arg_doc("foo", Some(&Doc::new("bar".to_string())), &config),
+        vec!["    /// * `foo`: bar\n".to_string()]
+    );
+    assert_eq!(
+        format_arg_doc("foo", Some(&Doc::new("bar\nbaz".to_string())), &config),
+        vec![
+            "    /// * `foo`: bar\n".to_string(),
+            "    ///     baz\n".to_string()
+        ]
+    );
+    assert_eq!(
+        format_arg_doc("foo", Some(&Doc::new("bar\n\nbaz".to_string())), &config),
+        vec![
+            "    /// * `foo`: bar\n".to_string(),
+            "    ///\n".to_string(),
+            "    ///     baz\n".to_string()
+        ]
+    );
+}
+
+fn apply_map_fn(map_fn: Option<&str>, ret: &str, required: bool) -> String {
+    if let Some(map_fn) = map_fn {
+        if required {
+            if map_fn.starts_with('|') {
+                format!("({})({})", map_fn, ret)
+            } else {
+                format!("{}({})", map_fn, ret)
+            }
         } else {
-            format!("{}({})", map_fn, ret)
+            format!("{}.map({})", ret, map_fn)
         }
     } else {
-        format!("{}.map({})", ret, map_fn)
+        ret.to_string()
     }
 }
 
 #[test]
 fn test_apply_map_fn() {
-    assert_eq!(apply_map_fn("", "x", true), "x".to_string());
+    assert_eq!(apply_map_fn(None, "x", true), "x".to_string());
     assert_eq!(
-        apply_map_fn("Some", "x", true),
+        apply_map_fn(Some("Some"), "x", true),
         "Some(x)".to_string()
     );
     assert_eq!(
-        apply_map_fn("Some", "x", false),
+        apply_map_fn(Some("Some"), "x", false),
         "x.map(Some)".to_string()
     );
     assert_eq!(
-        apply_map_fn("|y|y+1", "x", true),
+        apply_map_fn(Some("|y|y+1"), "x", true),
         "(|y|y+1)(x)".to_string()
     );
     assert_eq!(
-        apply_map_fn("|y|y+1", "x", false),
+        apply_map_fn(Some("|y|y+1"), "x", false),
         "x.map(|y|y+1)".to_string()
     );
 }
 
-pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<String> {
+pub fn serialize_representation_def(def: &RepresentationDef, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
+    let mut lines = vec![];
+    fn process_param(param: &Param, config: &Config, cb: impl Fn(&str, &str) -> String, options_names: &HashMap<Options, String>) -> Vec<String> {
+        let param_name = escape_rust_reserved(param.name.as_str());
+
+        let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type, options_names);
+        let mut indent = 4;
+        let mut lines = vec![];
+
+        let needs_iter = param_type.starts_with("Vec<") || param_type.starts_with("Option<Vec<");
+        let is_optional = param_type.starts_with("Option<");
+
+        if is_optional && param.fixed.is_none() {
+            lines.push(format!("{:indent$}if let Some({}) = {} {{\n", "", param_name, param_name, indent = indent));
+            indent += 4;
+        }
+        if needs_iter && param.fixed.is_none(){
+            lines.push(format!(
+                "{:indent$}for {} in {} {{\n",
+                "", param_name, param_name
+            ));
+            indent += 4;
+        }
+
+        let value = if let Some(fixed) = param.fixed.as_ref() {
+            format!("\"{}\"", fixed)
+        } else if param.links.is_empty() {
+            format!("&{}.to_string()", param_name)
+        } else {
+            format!("&{}.url().to_string()", param_name)
+        };
+
+        lines.push(format!("{:indent$}{}\n", "", cb(param.name.as_str(), value.as_str()), indent = indent));
+
+        if needs_iter && param.fixed.is_none() {
+            indent -= 4;
+            lines.push(format!("{:indent$}}}\n", "", indent = indent));
+        }
+
+        if is_optional && param.fixed.is_none(){
+            indent -= 4;
+            lines.push(format!("{:indent$}}}\n", "", indent = indent));
+        }
+
+        lines
+    }
+
+    match def.media_type.as_ref().map(|s| s.to_string()).as_deref() {
+        Some("multipart/form-data") => {
+            lines.push("let mut form = reqwest::blocking::multipart::Form::new();\n".to_string());
+            for param in def.params.iter() {
+                lines.extend(process_param(param, config, |name, value| {
+                    format!("form = form.text(\"{}\", {});", name, value.strip_prefix('&').unwrap_or(value))
+                }, options_names));
+            }
+            lines.push("req = req.multipart(form);\n".to_string());
+        },
+        Some("application/x-www-form-urlencoded") => {
+            lines.push("let mut serializer = form_urlencoded::Serializer::new(String::new());\n".to_string());
+            for param in def.params.iter() {
+                lines.extend(process_param(param, config, |name, value| format!("serializer.append_pair(\"{}\", {});", name, value), options_names));
+            }
+            lines.push("req = req.header(reqwest::header::CONTENT_TYPE, \"application/x-www-form-urlencoded\");\n".to_string());
+            lines.push("req = req.body(serializer.finish());\n".to_string());
+        },
+        Some("application/json") => {
+            lines.push("let mut o = serde_json::Value::Object::new();".to_string());
+
+            for param in def.params.iter() {
+                lines.extend(process_param(param, config, |name, value| format!("o.insert(\"{}\", {});", name, value), options_names));
+            }
+
+            lines.push("req = req.json(&o);\n".to_string());
+        }
+        o => {
+            panic!("unsupported media type {:?}", o);
+        }
+    }
+    lines
+}
+
+pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
     let mut lines = vec![];
 
     let name = input.id.as_str();
@@ -725,7 +1103,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         ("()".to_string(), None)
     } else {
         assert_eq!(1, input.responses.len(), "expected 1 response for {}", name);
-        let mut return_type = rust_type_for_response(&input.responses[0], input.id.as_str());
+        let mut return_type = rust_type_for_response(&input.responses[0], input.id.as_str(), options_names);
         let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_response.as_ref().and_then(|r| r(&name, &return_type)) {
             return_type = map_type;
             Some(map_fn)
@@ -775,7 +1153,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         if param.fixed.is_some() {
             continue;
         }
-        let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type);
+        let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type, options_names);
         let param_type = readonly_rust_type(param_type.as_str());
         let param_name = param.name.clone();
         let param_name = escape_rust_reserved(param_name.as_str());
@@ -784,7 +1162,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
 
         lines.extend(format_arg_doc(param_name, param.doc.as_ref(), config));
     }
-    line.push_str(") -> Result<");
+    line.push_str(") -> std::result::Result<");
     line.push_str(ret_type.as_str());
 
     line.push_str(", Error> {\n");
@@ -797,7 +1175,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         .all(|p| [ParamStyle::Header, ParamStyle::Query].contains(&p.style)));
 
     lines.push("        let mut url_ = self.url().clone();\n".to_string());
-    for param in params.iter().filter(|p| p.style == ParamStyle::Query) {
+    for param in input.request.params.iter().filter(|p| p.style == ParamStyle::Query) {
         if let Some(fixed) = param.fixed.as_ref() {
             assert!(!param.repeating);
             lines.push(format!(
@@ -808,10 +1186,11 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
             let param_name = param.name.as_str();
             let param_name = snake_case_name(param_name);
             let param_name = escape_rust_reserved(param_name.as_str());
-            let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type);
-            let value = match param.r#type {
-                TypeRef::ResourceType(_) => { format!("&{}.url().to_string()", param_name) },
-                TypeRef::Simple(_) | TypeRef::NoType | TypeRef::Options(_) => { format!("&{}.to_string()", param_name) }
+            let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type, options_names);
+            let value = if !param.links.is_empty() {
+                format!("&{}.url().to_string()", param_name)
+            } else {
+                format!("&{}.to_string()", param_name)
             };
 
             let mut indent = 0;
@@ -852,21 +1231,20 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
 
     let method = input.name.as_str();
     lines.push(format!(
-        "        let mut req = reqwest::blocking::Request::new(reqwest::Method::{}, url_);\n",
+        "        let mut req = client.request(reqwest::Method::{}, url_);\n",
         method
     ));
 
     for representation in &input.request.representations {
         match representation {
-            Representation::Definition(_) => { }
-            Representation::Reference(_) => {
-                lines.push("        let body = serde_json::to_string(&representation)?;\n".to_string());
-                // TODO(jelmer): Support non-JSON representations
-                lines.push("        req.headers_mut().insert(reqwest::header::CONTENT_TYPE, \"application/json\".parse().unwrap());\n".to_string());
-                lines.push("        req.headers_mut().insert(reqwest::header::CONTENT_LENGTH, body.len().to_string().parse().unwrap());\n".to_string());
-                lines.push("        *req.body_mut() = Some(reqwest::blocking::Body::from(body));\n".to_string());
+            Representation::Definition(ref d) => {
+                lines.extend(indent(2, serialize_representation_def(d, config, options_names).into_iter()));
             }
-        }
+            Representation::Reference(_r) => {
+                // TODO(jelmer): Support non-JSON representations
+                lines.push("        req = req.json(&representation);\n".to_string());
+            }
+        };
     }
 
     let response_mime_types = input
@@ -888,7 +1266,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
 
     if !response_mime_types.is_empty() {
         lines.push(format!(
-            "        req.headers_mut().insert(reqwest::header::ACCEPT, \"{}\".parse().unwrap());\n",
+            "        req = req.header(reqwest::header::ACCEPT, \"{}\");\n",
             response_mime_types
                 .into_iter()
                 .map(|x| x.to_string())
@@ -909,13 +1287,13 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         };
 
         lines.push(format!(
-            "        req.headers_mut().insert(\"{}\", {});\n",
+            "        req = req.header(\"{}\", {});\n",
             param.name, value
         ));
     }
 
     lines.push("\n".to_string());
-    lines.push("        let resp = client.execute(req)?.error_for_status()?;\n".to_string());
+    lines.push("        let resp = req.send()?;\n".to_string());
 
     lines.push("        match resp.status() {\n".to_string());
 
@@ -941,23 +1319,23 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         for param in response.params.iter() {
             match &param.style {
                 ParamStyle::Header => {
-                    match &param.r#type {
-                        TypeRef::ResourceType(r) => {
-                            if param.required {
-                                return_types.push((format!(
-                                    "{}(resp.headers().get(\"{}\")?.to_str()?.parse().unwrap())",
-                                    resource_type_rust_type(r),
-                                    param.name
-                                ), true));
-                            } else {
-                                return_types.push((format!(
-                                    "resp.headers().get(\"{}\").map(|x| {}(x.to_str().unwrap().parse().unwrap()))",
-                                    param.name,
-                                    resource_type_rust_type(r),
-                                ), false));
-                            }
+                    if !param.links.is_empty() {
+                        let r = &param.links[0].resource_type.as_ref().unwrap();
+                        if param.required {
+                            return_types.push((format!(
+                                "{}(resp.headers().get(\"{}\")?.to_str()?.parse().unwrap())",
+                                resource_type_rust_type(r),
+                                param.name
+                            ), true));
+                        } else {
+                            return_types.push((format!(
+                                "resp.headers().get(\"{}\").map(|x| {}(x.to_str().unwrap().parse().unwrap()))",
+                                param.name,
+                                resource_type_rust_type(r),
+                            ), false));
                         }
-                        _ => todo!("header param type {:?} for {} in {:?}", param.r#type, param.name, input.id),
+                    } else {
+                        todo!("header param type {:?} for {} in {:?}", param.r#type, param.name, input.id);
                     }
                 }
                 t => todo!("param style {:?}", t),
@@ -967,15 +1345,10 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         if return_types.is_empty() {
             lines.push("        Ok(())\n".to_string());
         } else if return_types.len() == 1 {
-            if let Some(map_fn) = map_fn.as_ref() {
-                lines.push(format!("                Ok({})\n", apply_map_fn(map_fn, &return_types[0].0, return_types[0].1)));
-            } else {
-                lines.push(format!("                Ok({})\n", return_types[0].0));
-            }
-        } else if let Some(map_fn) = map_fn.as_ref() {
-            lines.push(format!("                 Ok({})\n", apply_map_fn(map_fn, &return_types.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", "), true)));
+            lines.push(format!("                Ok({})\n", apply_map_fn(map_fn.as_deref(), &return_types[0].0, return_types[0].1)));
         } else {
-            lines.push(format!("                Ok(({}))\n", return_types.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", ")));
+            let v = format!("({})", return_types.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", "));
+            lines.push(format!("                 Ok({})\n", apply_map_fn(map_fn.as_deref(), &v, true)));
         }
         lines.push("            }\n".to_string());
     }
@@ -994,7 +1367,38 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
     lines
 }
 
-fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<String> {
+#[test]
+fn test_generate_method() {
+    let input = Method {
+        id: "foo".to_string(),
+        name: "GET".to_string(),
+        docs: vec![],
+        request: Request {
+            docs: vec![],
+            params: vec![],
+            representations: vec![],
+        },
+        responses: vec![],
+    };
+    let config = Config::default();
+    let lines = generate_method(&input, "bar", &config, &HashMap::new());
+    assert_eq!(lines, vec![
+        "    pub fn foo<'a>(&self, client: &'a dyn wadl::Client) -> std::result::Result<(), Error> {\n".to_string(),
+        "        let mut url_ = self.url().clone();\n".to_string(),
+        "\n".to_string(),
+        "        let mut req = client.request(reqwest::Method::GET, url_);\n".to_string(),
+        "\n".to_string(),
+        "        let resp = req.send()?;\n".to_string(),
+        "        match resp.status() {\n".to_string(),
+        "            s if s.is_success() => Ok(()),\n".to_string(),
+        "            _ => Err(wadl::Error::UnhandledResponse(resp))\n".to_string(),
+        "        }\n".to_string(),
+        "    }\n".to_string(),
+        "\n".to_string(),
+    ]);
+}
+
+fn generate_resource_type(input: &ResourceType, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
     let mut lines = vec![];
 
     for doc in &input.docs {
@@ -1017,7 +1421,7 @@ fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<String> 
     lines.push(format!("impl {} {{\n", name));
 
     for method in &input.methods {
-        lines.extend(generate_method(method, input.id.as_str(), config));
+        lines.extend(generate_method(method, input.id.as_str(), config, options_names));
     }
 
     lines.push("}\n".to_string());
@@ -1031,11 +1435,38 @@ fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<String> 
     lines
 }
 
+#[test]
+fn test_generate_resource_type() {
+    let input = ResourceType {
+        id: "foo".to_string(),
+        docs: vec![],
+        methods: vec![],
+        query_type: mime::APPLICATION_JSON,
+        params: vec![],
+        subresources: vec![]
+    };
+    let config = Config::default();
+    let lines = generate_resource_type(&input, &config, &HashMap::new());
+    assert_eq!(lines, vec![
+        "pub struct Foo (reqwest::Url);\n".to_string(),
+        "\n".to_string(),
+        "impl Foo {\n".to_string(),
+        "}\n".to_string(),
+        "\n".to_string(),
+        "impl Resource for Foo {\n".to_string(),
+        "    fn url(&self) -> &reqwest::Url {\n".to_string(),
+        "        &self.0\n".to_string(),
+        "    }\n".to_string(),
+        "}\n".to_string(),
+        "\n".to_string(),
+    ]);
+}
+
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
 pub struct Config {
-    /// Based on the name of a parameter, determine the rust type
-    pub guess_type_name: Option<Box<dyn Fn(&str) -> Option<String>>>,
+    /// Based on the listed type and name of a parameter, determine the rust type
+    pub override_type_name: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
 
     /// Support renaming param accessor functions
     pub param_accessor_rename: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
@@ -1073,22 +1504,133 @@ pub struct Config {
 
     /// Return whether a param is deprecated
     pub deprecated_param: Option<Box<dyn Fn(&Param) -> bool>>,
+
+    /// Return the name for an enum representation a set of options
+    ///
+    /// The callback can be used to determine if the name is already taken.
+    pub options_enum_name: Option<Box<dyn Fn(&Param, Box<dyn Fn(&str) -> bool>) -> String>>,
+}
+
+fn enum_rust_value(option: &str) -> String {
+    let name = camel_case_name(option.replace(' ', "-").as_str());
+
+    // Now, strip all characters not allowed in rust identifiers
+    let name = name.chars().filter(|c| c.is_alphanumeric() || *c == '_').collect::<String>();
+
+    // If the identifier starts with a digit, prefix it with '_' to make it a valid identifier
+    if name.chars().next().unwrap().is_numeric() {
+        format!("_{}", name)
+    } else {
+        name
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_enum_rust_value() {
+        assert_eq!(enum_rust_value("foo"), "Foo");
+        assert_eq!(enum_rust_value("foo bar"), "FooBar");
+        assert_eq!(enum_rust_value("foo bar blah"), "FooBarBlah");
+        assert_eq!(enum_rust_value("foo-bar"), "FooBar");
+    }
+}
+
+pub fn generate_options(name: &str, options: &crate::ast::Options) -> Vec<String> {
+    let mut lines = vec![];
+
+    lines.push("#[derive(Debug, Clone, Copy, PartialEq, Eq, std::hash::Hash, serde::Serialize, serde::Deserialize)]\n".to_string());
+    lines.push(format!("pub enum {} {{\n", name));
+
+    let mut option_map = HashMap::new();
+
+    for option in options.keys() {
+        let rust_name = enum_rust_value(option);
+        lines.push(format!("    #[serde(rename = \"{}\")]\n", option));
+        lines.push(format!("    {},\n", rust_name));
+        option_map.insert(option, rust_name);
+    }
+    lines.push("}\n".to_string());
+    lines.push("\n".to_string());
+
+    lines.push(format!("impl std::fmt::Display for {} {{\n", name));
+    lines.push("    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n".to_string());
+    lines.push("        match self {\n".to_string());
+    for (option, rust_name) in option_map {
+        lines.push(format!("            {}::{} => write!(f, \"{}\"),\n", name, rust_name, option));
+    }
+    lines.push("        }\n".to_string());
+    lines.push("    }\n".to_string());
+    lines.push("}\n".to_string());
+    lines
+}
+
+fn options_rust_enum_name(param: &Param, options: &HashMap<Options, String>) -> String {
+    let mut name = camel_case_name(param.name.as_str());
+    while options.values().any(|v| v == &name) {
+        name = format!("{}_", name);
+    }
+    name
 }
 
 pub fn generate(app: &Application, config: &Config) -> String {
     let mut lines = vec![];
+
+    let mut options = HashMap::new();
+
+    for param in app.iter_all_params() {
+        if let Some(os) = &param.options {
+            if options.contains_key(os) {
+                continue;
+            }
+            let name = if let Some(enum_name_fn) = config.options_enum_name.as_ref() {
+                let cb_options = options.clone();
+                let name = enum_name_fn(param, Box::new(move |name: &str| -> bool {  cb_options.values().any(|v| v == name) }));
+                let taken = options.iter().filter_map(|(k, v)| if v == &name { Some(k) } else { None }).collect::<Vec<_>>();
+                if !taken.is_empty() {
+                    panic!("Enum name {} is already taken by {:?} ({:?})", name, taken, options);
+                }
+                name
+            } else {
+                options_rust_enum_name(param, &options)
+            };
+            let enum_lines = generate_options(name.as_str(), os);
+            options.insert(os.clone(), name);
+            lines.extend(enum_lines);
+        }
+    }
 
     for doc in &app.docs {
         lines.extend(generate_doc(doc, 0, config));
     }
 
     for representation in &app.representations {
-        lines.extend(generate_representation(representation, config));
+        lines.extend(generate_representation(representation, config, &options));
     }
 
     for resource_type in &app.resource_types {
-        lines.extend(generate_resource_type(resource_type, config));
+        lines.extend(generate_resource_type(resource_type, config, &options));
     }
 
     lines.concat()
+}
+
+fn indent(indent: usize, lines: impl Iterator<Item = String>) -> impl Iterator<Item = String> {
+    lines.map(move |line| format!("{}{}", " ".repeat(indent * 4), line))
+}
+
+#[test]
+fn test_generate_empty() {
+    let input = crate::ast::Application {
+        docs: vec![],
+        representations: vec![],
+        resource_types: vec![],
+        resources: vec![],
+        grammars: vec![]
+    };
+    let config = Config::default();
+    let lines = generate(&input, &config);
+    assert_eq!(lines, "".to_string());
 }

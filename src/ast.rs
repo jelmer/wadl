@@ -42,26 +42,44 @@ impl Application {
         }
     }
 
+    /// Iterate over all resources defined in this application.
     pub fn iter_resources(&self) -> impl Iterator<Item = (Url, &Resource)> {
         self.resources
             .iter()
             .flat_map(|rs| rs.resources.iter().map(|r| (r.url(rs.base.as_ref()), r)))
     }
 
+    /// Get a resource by its ID.
     pub fn get_resource_by_href(&self, href: &Url) -> Option<&Resource> {
         self.iter_resources()
             .find(|(url, _)| url == href)
             .map(|(_, r)| r)
     }
 
-    pub fn iter_all_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+    /// Iterate over all types defined in this application.
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = String> + '_ {
         self.iter_resources()
-            .flat_map(|(_u, r)| r.iter_all_types())
+            .flat_map(|(_u, r)| r.iter_referenced_types())
             .chain(
                 self.resource_types
                     .iter()
-                    .flat_map(|rt| rt.iter_all_types()),
+                    .flat_map(|rt| rt.iter_referenced_types()),
             )
+    }
+
+    /// Iterate over all parameters defined in this application.
+    pub fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.iter_resources()
+            .flat_map(|(_u, r)| r.iter_all_params())
+            .chain(
+                self.resource_types
+                    .iter()
+                    .flat_map(|rt| rt.iter_all_params()),
+            )
+            .chain(
+                self.representations
+                    .iter()
+                    .flat_map(|r| r.iter_all_params()))
     }
 }
 
@@ -87,7 +105,7 @@ pub struct Grammar {
     pub href: Url,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceTypeRef {
     Id(Id),
     Link(Url),
@@ -118,23 +136,59 @@ impl ResourceTypeRef {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum TypeRef {
-    Simple(String),
-    ResourceType(ResourceTypeRef),
-    NoType,
-    Options(HashMap<String, Option<mime::Mime>>),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Options(HashMap<String, Option<mime::Mime>>);
+
+impl std::hash::Hash for Options {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let mut items = self.0.iter().collect::<Vec<_>>();
+        items.sort();
+        for (key, value) in items {
+            key.hash(state);
+            value.hash(state);
+        }
+    }
 }
 
-impl std::str::FromStr for TypeRef {
-    type Err = String;
+impl Options {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(s) = s.strip_prefix('#') {
-            Ok(TypeRef::ResourceType(ResourceTypeRef::Id(s.to_string())))
-        } else {
-            Ok(TypeRef::Simple(s.to_string()))
-        }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&str, Option<&mime::Mime>)> {
+        self.0.iter().map(|(k, v)| (k.as_str(), v.as_ref()))
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.0.keys().map(|k| k.as_str())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn insert(&mut self, key: String, value: Option<mime::Mime>) {
+        self.0.insert(key, value);
+    }
+
+    pub fn get(&self, key: &str) -> Option<&Option<mime::Mime>> {
+        self.0.get(key)
+    }
+}
+
+impl From<Vec<String>> for Options {
+    fn from(v: Vec<String>) -> Self {
+        Self(v.into_iter().map(|s| (s, None)).collect())
+    }
+}
+
+impl From<Vec<&str>> for Options {
+    fn from(v: Vec<&str>) -> Self {
+        Self(v.into_iter().map(|s| (s.to_string(), None)).collect())
     }
 }
 
@@ -166,6 +220,7 @@ pub struct Resource {
 }
 
 impl Resource {
+    /// Get the URL of this resource.
     pub fn url(&self, base_url: Option<&Url>) -> Url {
         if let Some(base_url) = base_url {
             base_url.join(self.path.as_ref().unwrap()).unwrap()
@@ -174,15 +229,42 @@ impl Resource {
         }
     }
 
+    /// Iterate over all parameters defined in this resource.
     pub(crate) fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
-        self.params
-            .iter()
-            .chain(self.methods.iter().flat_map(|m| m.request.params.iter()))
+        let mut params = self.params.iter().collect::<Vec<_>>();
+
+        params.extend(self.subresources.iter().flat_map(|r| r.iter_all_params()));
+        params.extend(self.methods.iter().flat_map(|m| m.iter_all_params()));
+
+        params.into_iter()
     }
 
-    pub fn iter_all_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+    /// Iterate over all types referenced by this resource.
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = String> + '_ {
         self.iter_all_params().map(|p| p.r#type.clone())
     }
+}
+
+#[test]
+fn test_resource_url() {
+    let r = Resource {
+        id: None,
+        path: Some("/foo".to_string()),
+        r#type: vec![],
+        query_type: mime::APPLICATION_JSON,
+        methods: vec![],
+        docs: vec![],
+        subresources: vec![],
+        params: vec![],
+    };
+    assert_eq!(
+        r.url(Some(&Url::parse("http://example.com").unwrap())),
+        Url::parse("http://example.com/foo").unwrap()
+    );
+    assert_eq!(
+        r.url(Some(&Url::parse("http://example.com/bar").unwrap())),
+        Url::parse("http://example.com/foo").unwrap()
+    );
 }
 
 #[derive(Debug, Clone)]
@@ -192,6 +274,13 @@ pub struct Method {
     pub docs: Vec<Doc>,
     pub request: Request,
     pub responses: Vec<Response>,
+}
+
+impl Method {
+    fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.request.iter_all_params().chain(
+            self.responses.iter().flat_map(|r| r.iter_all_params()))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -209,7 +298,16 @@ pub struct Doc {
     pub xmlns: Option<url::Url>,
 }
 
-#[derive(Debug, Clone)]
+impl Doc {
+    pub fn new(content: String) -> Self {
+        Self {
+            content,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Link {
     pub resource_type: Option<ResourceTypeRef>,
 
@@ -228,21 +326,22 @@ pub struct Link {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param {
     pub style: ParamStyle,
     pub id: Option<Id>,
     pub name: String,
-    pub r#type: TypeRef,
+    pub r#type: String,
     pub path: Option<String>,
     pub required: bool,
     pub repeating: bool,
     pub fixed: Option<String>,
     pub doc: Option<Doc>,
-    pub links: Vec<Link>
+    pub links: Vec<Link>,
+    pub options: Option<Options>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RepresentationDef {
     pub id: Option<Id>,
     pub media_type: Option<mime::Mime>,
@@ -250,6 +349,12 @@ pub struct RepresentationDef {
     pub profile: Option<String>,
     pub docs: Vec<Doc>,
     pub params: Vec<Param>,
+}
+
+impl RepresentationDef {
+    fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.params.iter()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -293,6 +398,42 @@ impl Representation {
             Representation::Definition(d) => Some(d),
         }
     }
+
+    pub fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        // TODO: Make this into a proper iterator
+        let params = 
+        match self {
+            Representation::Reference(_) => vec![],
+            Representation::Definition(d) => d.iter_all_params().collect::<Vec<_>>(),
+        };
+
+        params.into_iter()
+    }
+}
+
+#[test]
+fn test_representation_url() {
+    let base_url = Url::parse("http://example.com").unwrap();
+    let r = Representation::Reference(RepresentationRef::Id("foo".to_string()));
+    assert_eq!(r.url(&base_url).unwrap(), Url::parse("http://example.com#foo").unwrap());
+    let r = Representation::Reference(RepresentationRef::Link(Url::parse("http://example.com#foo").unwrap()));
+    assert_eq!(r.url(&base_url).unwrap(), Url::parse("http://example.com#foo").unwrap());
+    let r = Representation::Definition(RepresentationDef {
+        id: Some("foo".to_string()),
+        ..Default::default()
+    });
+    assert_eq!(r.url(&base_url).unwrap(), Url::parse("http://example.com#foo").unwrap());
+}
+
+#[test]
+fn test_representation_id() {
+    let r = Representation::Reference(RepresentationRef::Id("foo".to_string()));
+    assert_eq!(r.as_def(), None);
+    let r = Representation::Definition(RepresentationDef {
+        id: Some("foo".to_string()),
+        ..Default::default()
+    });
+    assert_eq!(r.as_def().unwrap().id, Some("foo".to_string()));
 }
 
 impl RepresentationDef {
@@ -314,12 +455,34 @@ pub struct Request {
     pub representations: Vec<Representation>,
 }
 
-#[derive(Debug, Clone)]
+impl Request {
+    fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.params.iter().chain(
+            self.representations
+                .iter()
+                .filter_map(|r| r.as_def().map(|r| r.iter_all_params()))
+                .flatten(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct Response {
     pub docs: Vec<Doc>,
     pub params: Vec<Param>,
     pub status: Option<i32>,
     pub representations: Vec<Representation>,
+}
+
+impl Response {
+    fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.params.iter().chain(
+            self.representations
+                .iter()
+                .filter_map(|r| r.as_def().map(|r| r.iter_all_params()))
+                .flatten(),
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -336,10 +499,11 @@ impl ResourceType {
     pub(crate) fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
         self.params
             .iter()
-            .chain(self.methods.iter().flat_map(|m| m.request.params.iter()))
+            .chain(self.methods.iter().flat_map(|m| m.iter_all_params()))
     }
 
-    pub fn iter_all_types(&self) -> impl Iterator<Item = TypeRef> + '_ {
+    /// Returns an iterator over all types referenced by this resource type.
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = String> + '_ {
         self.iter_all_params().map(|p| p.r#type.clone())
     }
 }

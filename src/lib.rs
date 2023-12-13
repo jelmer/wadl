@@ -16,14 +16,12 @@ pub trait Resource {
 }
 
 pub trait Client {
-    fn execute(&self, req: reqwest::blocking::Request,
-    ) -> Result<reqwest::blocking::Response, reqwest::Error>;
+    fn request(&self, method: reqwest::Method, url: url::Url) -> reqwest::blocking::RequestBuilder;
 }
 
 impl Client for reqwest::blocking::Client {
-    fn execute(&self, req: reqwest::blocking::Request,
-    ) -> Result<reqwest::blocking::Response, reqwest::Error> {
-        self.execute(req)
+    fn request(&self, method: reqwest::Method, url: url::Url) -> reqwest::blocking::RequestBuilder {
+        self.request(method, url)
     }
 }
 

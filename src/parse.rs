@@ -1,5 +1,4 @@
 use crate::ast::*;
-use std::collections::HashMap;
 use std::io::Read;
 use url::Url;
 use xmltree::Element;
@@ -52,8 +51,8 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-pub fn parse_options(element: &Element) -> Option<HashMap<String, Option<mime::Mime>>> {
-    let mut options = HashMap::new();
+pub fn parse_options(element: &Element) -> Option<Options> {
+    let mut options = Options::new();
 
     for option_node in &element.children {
         if let Some(element) = option_node.as_element() {
@@ -146,13 +145,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     }
                 }).collect::<Vec<_>>();
                 let name = element.attributes.get("name").cloned().unwrap();
-                let r#type = if let Some(t) = element.attributes.get("type").cloned() {
-                    Some(TypeRef::Simple(t))
-                } else if !links.is_empty() {
-                    Some(TypeRef::ResourceType(links[0].resource_type.clone().unwrap_or(ResourceTypeRef::Empty)))
-                } else {
-                    None
-                };
+                let r#type = element.attributes.get("type").cloned().unwrap_or_else(|| "string".to_string());
                 let path = element.attributes.get("path").cloned();
                 let required = element
                     .attributes
@@ -176,11 +169,6 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     );
                 }
                 let doc = parse_docs(element);
-                let r#type = match (r#type, options) {
-                    (_, Some(options)) => TypeRef::Options(options),
-                    (Some(t), None) => t,
-                    (None, None) => TypeRef::NoType,
-                };
                 params.push(Param {
                     style,
                     id,
@@ -191,6 +179,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     repeating,
                     fixed,
                     links,
+                    options,
                     doc: if doc.len() == 1 {
                         Some(doc.into_iter().next().unwrap())
                     } else {
@@ -219,9 +208,8 @@ fn parse_resource(element: &Element) -> Result<Resource, Error> {
     let query_type: mime::Mime = element
         .attributes
         .get("queryType")
-        .cloned()
-        .unwrap_or("application/x-www-form-urlencoded".to_string())
-        .parse()?;
+        .map(|s| s.as_str().parse()).transpose()?
+        .unwrap_or(mime::APPLICATION_WWW_FORM_URLENCODED);
 
     let docs = parse_docs(element);
 
@@ -251,6 +239,71 @@ fn parse_resource(element: &Element) -> Result<Resource, Error> {
     })
 }
 
+#[test]
+fn test_parse_resource() {
+    let xml = r#"
+        <resource id="foo" path="/blah" type='#bar'>
+            <doc title="Title">
+                <p>Resource Description</p>
+            </doc>
+            <param name="foo" type="string" style="query" required="true">
+                <doc title="Param Title">
+                    <p>Param Description</p>
+                </doc>
+            </param>
+            <param name="bar" type="string" style="query" required="true">
+                <doc title="Bar">
+                    <p>Bar</p>
+                </doc>
+            </param>
+            <method name="GET">
+                <doc title="Get Foo">
+                    <p>Get Foo</p>
+                </doc>
+                <response code="200">
+                    <doc title="Foo">
+                        <p>Foo</p>
+                    </doc>
+                    <representation mediaType="application/json">
+                        <doc title="Foo">
+                            <p>Foo</p>
+                        </doc>
+                    </representation>
+                </response>
+            </method>
+            <resource id="bar" path="/bar" type='#bar1'>
+                <doc title="Bar">
+                    <p>Bar</p>
+                </doc>
+                <method name="GET">
+                    <doc title="Get Bar">
+                        <p>Get Bar</p>
+                    </doc>
+                    <response code="200">
+                        <doc title="Bar">
+                            <p>Bar</p>
+                        </doc>
+                        <representation mediaType="application/json">
+                            <doc title="Bar">
+                                <p>Bar</p>
+                            </doc>
+                        </representation>
+                    </response>
+                </method>
+            </resource>
+        </resource>
+    "#;
+
+    let element = Element::parse(xml.as_bytes()).unwrap();
+
+    let resource = parse_resource(&element).unwrap();
+
+    assert_eq!(resource.id, Some("foo".to_string()));
+    assert_eq!(resource.path, Some("/blah".to_string()));
+    assert_eq!(resource.query_type, mime::APPLICATION_WWW_FORM_URLENCODED);
+    assert_eq!(resource.docs.len(), 1);
+}
+
 fn parse_resources(resources_element: &Element) -> Result<Vec<Resource>, Error> {
     let mut resources = Vec::new();
 
@@ -263,6 +316,77 @@ fn parse_resources(resources_element: &Element) -> Result<Vec<Resource>, Error> 
     }
 
     Ok(resources)
+}
+
+#[test]
+fn test_parse_resources() {
+    let xml = r#"
+        <resources base="http://example.com">
+            <resource id="foo" path="/blah" type='#bar'>
+                <doc title="Title">
+                    <p>Resource Description</p>
+                </doc>
+                <param name="foo" type="string" style="query" required="true">
+                    <doc title="Param Title">
+                        <p>Param Description</p>
+                    </doc>
+                </param>
+                <param name="bar" type="string" style="query" required="true">
+                    <doc title="Bar">
+                        <p>Bar</p>
+                    </doc>
+                </param>
+                <method name="GET">
+                    <doc title="Get Foo">
+                        <p>Get Foo</p>
+                    </doc>
+                    <response code="200">
+                        <doc title="Foo">
+                            <p>Foo</p>
+                        </doc>
+                        <representation mediaType="application/json">
+                            <doc title="Foo">
+                                <p>Foo</p>
+                            </doc>
+                        </representation>
+                    </response>
+                </method>
+                <resource id="bar" path="/bar" type='#bar1'>
+                    <doc title="Bar">
+                        <p>Bar</p>
+                    </doc>
+                    <method name="GET">
+                        <doc title="Get Bar">
+                            <p>Get Bar</p>
+                        </doc>
+                        <response code="200">
+                            <doc title="Bar">
+                                <p>Bar</p>
+                            </doc>
+                            <representation mediaType="application/json">
+                                <doc title="Bar">
+                                    <p>Bar</p>
+                                </doc>
+                            </representation>
+                        </response>
+                    </method>
+                </resource>
+            </resource>
+        </resources>
+    "#;
+
+    let element = Element::parse(xml.as_bytes()).unwrap();
+
+    let resources = parse_resources(&element).unwrap();
+
+    assert_eq!(resources.len(), 1);
+
+    let resource = &resources[0];
+
+    assert_eq!(resource.id, Some("foo".to_string()));
+    assert_eq!(resource.path, Some("/blah".to_string()));
+    assert_eq!(resource.query_type, mime::APPLICATION_WWW_FORM_URLENCODED);
+    assert_eq!(resource.docs.len(), 1);
 }
 
 fn parse_docs(resource_element: &Element) -> Vec<Doc> {
@@ -393,15 +517,18 @@ pub fn parse<R: Read>(reader: R) -> Result<Application, Error> {
     })
 }
 
+/// Parse an XML application description from a file.
 pub fn parse_file<P: AsRef<std::path::Path>>(path: P) -> Result<Application, Error> {
     let file = std::fs::File::open(path).map_err(Error::Io)?;
     parse(file)
 }
 
+/// Parse a string containing an XML application description.
 pub fn parse_string(s: &str) -> Result<Application, Error> {
     parse(s.as_bytes())
 }
 
+/// Parse a byte slice containing an XML application description.
 pub fn parse_bytes(bytes: &[u8]) -> Result<Application, Error> {
     parse(bytes)
 }
@@ -678,4 +805,47 @@ fn parse_methods(resource_element: &Element) -> Vec<Method> {
     }
 
     methods
+}
+
+#[test]
+fn test_parse_methods() {
+    let xml = r#"
+        <methods>
+            <method name="GET">
+                <doc>Get a list of all the widgets</doc>
+                <request>
+                    <doc>Filter the list of widgets</doc>
+                    <param name="filter" style="query" type="string" required="false">
+                        <doc>Filter the list of widgets</doc>
+                    </param>
+                </request>
+                <response status="200">
+                    <doc>Return a list of widgets</doc>
+                    <representation mediaType="application/json">
+                        <doc>Return a list of widgets</doc>
+                    </representation>
+                    <param name="id" style="plain" type="string" required="true">
+                        <doc>Return a list of widgets</doc>
+                    </param>
+                    <param name="name" style="plain" type="string" required="true">
+                        <doc>Return a list of widgets</doc>
+                    </param>
+
+                </response>
+            </method>
+        </methods>
+    "#;
+
+    let methods = parse_methods(&Element::parse(xml.as_bytes()).unwrap());
+
+    assert_eq!(methods.len(), 1);
+    assert_eq!(methods[0].id, "");
+    assert_eq!(methods[0].name, "GET");
+    assert_eq!(methods[0].docs, vec![Doc { content: "Get a list of all the widgets".to_string(), ..Default::default() }]);
+    assert_eq!(methods[0].request.docs, vec![Doc { content: "Filter the list of widgets".to_string(), ..Default::default() }]);
+    assert_eq!(methods[0].request.params.len(), 1);
+    assert_eq!(methods[0].request.params[0].name, "filter");
+    assert_eq!(methods[0].request.params[0].doc.as_ref().unwrap(), &Doc{ content: "Filter the list of widgets".to_string(), ..Default::default() });
+    assert_eq!(methods[0].responses.len(), 1);
+    assert_eq!(methods[0].responses[0].docs, vec![Doc { content: "Return a list of widgets".to_string(), ..Default::default() }]);
 }
