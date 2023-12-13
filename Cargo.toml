@@ -32,3 +32,6 @@ cli = ["dep:clap", "dep:env_logger", "codegen"]
 name = "wadlc"
 path = "src/bin/wadlc.rs"
 required-features = ["cli"]
+
+[dev-dependencies]
+maplit = "1.0.2"

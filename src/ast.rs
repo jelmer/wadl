@@ -180,6 +180,18 @@ impl Options {
     }
 }
 
+impl From<Vec<String>> for Options {
+    fn from(v: Vec<String>) -> Self {
+        Self(v.into_iter().map(|s| (s, None)).collect())
+    }
+}
+
+impl From<Vec<&str>> for Options {
+    fn from(v: Vec<&str>) -> Self {
+        Self(v.into_iter().map(|s| (s.to_string(), None)).collect())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeRef {
     Simple(String),

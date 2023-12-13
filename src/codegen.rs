@@ -397,11 +397,11 @@ fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl
     assert!(param.fixed.is_none());
 
     let (mut param_type, annotations) = match &param.r#type {
-        TypeRef::Simple(name) => match name.as_str() {
-            "xsd:date" => ("chrono::NaiveDate".to_string(), vec![]),
-            "xsd:dateTime" => ("chrono::DateTime<chrono::Utc>".to_string(), vec![]),
-            "xsd:time" => ("(chrono::Time".to_string(), vec![]),
-            "xs:int" => ("i32".to_string(), vec![]),
+        TypeRef::Simple(name) => match name.as_str().split_once(':').map_or(name.as_str(), |(_, n)| n) {
+            "date" => ("chrono::NaiveDate".to_string(), vec![]),
+            "dateTime" => ("chrono::DateTime<chrono::Utc>".to_string(), vec![]),
+            "time" => ("(chrono::Time".to_string(), vec![]),
+            "int" => ("i32".to_string(), vec![]),
             "string" => ("String".to_string(), vec![]),
             "binary" => ("Vec<u8>".to_string(), vec![]),
             u => panic!("Unknown type: {}", u),
@@ -439,6 +439,55 @@ fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl
 
     (param_type, annotations)
 }
+
+#[test]
+fn test_param_rust_type() {
+    use std::str::FromStr;
+    let rt = ResourceTypeRef::from_str("https://api.launchpad.net/1.0/#person").unwrap();
+    let mut param = Param {
+        name: "person".to_string(),
+        r#type: TypeRef::ResourceType(rt),
+        required: true,
+        repeating: false,
+        fixed: None,
+        doc: None,
+        id: None,
+        links: vec![],
+        style: ParamStyle::Plain,
+        path: None
+    };
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "Person");
+
+    param.required = false;
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "Option<Person>");
+
+    param.repeating = true;
+    param.required = true;
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "Vec<Person>");
+
+    param.repeating = false;
+    param.r#type = TypeRef::Simple("string".to_string());
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "String");
+
+    param.r#type = TypeRef::Simple("binary".to_string());
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "Vec<u8>");
+
+    param.r#type = TypeRef::Simple("xsd:date".to_string());
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &HashMap::new());
+    assert_eq!(param_type, "chrono::NaiveDate");
+
+    param.r#type = TypeRef::Options(Options::from(vec!["one".to_string(), "two".to_string()]));
+    let (param_type, _) = param_rust_type(&param, &Config::default(), resource_type_rust_type, &maplit::hashmap! {
+        Options::from(vec!["one".to_string(), "two".to_string()]) => "MyOptions".to_string(),
+    });
+    assert_eq!(param_type, "MyOptions");
+}
+
 
 fn readonly_rust_type(name: &str) -> String {
     if name.starts_with("Option<") && name.ends_with('>') {
@@ -559,6 +608,7 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
             TypeRef::NoType => "no type for parameter in WADL".to_string(),
         };
 
+        // We provide accessors for resource types
         let is_pub = !matches!(&param.r#type, TypeRef::ResourceType(_));
 
         lines.push(format!("    // {}\n", comment));
