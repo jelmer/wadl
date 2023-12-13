@@ -392,8 +392,8 @@ fn test_resource_type_rust_type() {
 }
 
 fn simple_type_rust_type(type_name: &str, param: &Param, config: &Config) -> (String, Vec<String>) {
-    let tn = if let Some(guess_name) = config.guess_type_name.as_ref() {
-        guess_name(param.name.as_str())
+    let tn = if let Some(override_name) = config.override_type_name.as_ref() {
+        override_name(type_name, param.name.as_str())
     } else {
         None
     };
@@ -1382,8 +1382,8 @@ fn test_generate_resource_type() {
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
 pub struct Config {
-    /// Based on the name of a parameter, determine the rust type
-    pub guess_type_name: Option<Box<dyn Fn(&str) -> Option<String>>>,
+    /// Based on the listed type and name of a parameter, determine the rust type
+    pub override_type_name: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
 
     /// Support renaming param accessor functions
     pub param_accessor_rename: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
