@@ -1,4 +1,5 @@
 use crate::ast::*;
+use std::collections::HashMap;
 
 use crate::WADL_MIME_TYPE;
 
@@ -6,7 +7,7 @@ use crate::WADL_MIME_TYPE;
 pub const XHTML_MIME_TYPE: &str = "application/xhtml+xml";
 
 /// Convert wadl names (with dashes) to camel-case Rust names
-fn camel_case_name(name: &str) -> String {
+pub fn camel_case_name(name: &str) -> String {
     let mut it = name.chars().peekable();
     let mut result = String::new();
     // Uppercase the first letter
@@ -37,7 +38,7 @@ fn test_camel_case_name() {
 }
 
 /// Convert wadl names (with dashes) to snake-case Rust names
-fn snake_case_name(name: &str) -> String {
+pub fn snake_case_name(name: &str) -> String {
     let mut name = name.to_string();
     name = name.replace('-', "_");
     let it = name.chars().peekable();
@@ -342,10 +343,10 @@ fn generate_resource_type_ref_accessors(field_name: &str, input: &ResourceTypeRe
     lines
 }
 
-fn generate_representation(input: &RepresentationDef, config: &Config) -> Vec<String> {
+fn generate_representation(input: &RepresentationDef, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
     let mut lines = vec![];
     if input.media_type == Some(mime::APPLICATION_JSON) {
-        lines.extend(generate_representation_struct_json(input, config));
+        lines.extend(generate_representation_struct_json(input, config, options_names));
     } else {
         panic!("Unknown media type: {:?}", input.media_type);
     }
@@ -392,7 +393,7 @@ fn test_resource_type_rust_type() {
     assert_eq!(resource_type_rust_type(&rt), "Person");
 }
 
-fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl Fn(&ResourceTypeRef) -> String) -> (String, Vec<String>) {
+fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl Fn(&ResourceTypeRef) -> String, options_names: &HashMap<Options, String>) -> (String, Vec<String>) {
     assert!(param.fixed.is_none());
 
     let (mut param_type, annotations) = match &param.r#type {
@@ -406,9 +407,11 @@ fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl
             u => panic!("Unknown type: {}", u),
         },
         TypeRef::ResourceType(r) => (resource_type_rust_type(r), vec![]),
-        TypeRef::Options(_options) => {
-            // TODO: define an enum for this
-            ("String".to_string(), vec![])
+        TypeRef::Options(os) => {
+            let options_name = options_names.get(os).unwrap_or_else(|| {
+                panic!("Unknown options {:?} for {}", os, param.name);
+            });
+            (options_name.clone(), vec![])
         }
         TypeRef::NoType => {
             let tn = if let Some(guess_name) = config.guess_type_name.as_ref() {
@@ -516,7 +519,7 @@ fn test_representation_rust_type() {
     assert_eq!(representation_rust_type(&rt), "Person");
 }
 
-fn generate_representation_struct_json(input: &RepresentationDef, config: &Config) -> Vec<String> {
+fn generate_representation_struct_json(input: &RepresentationDef, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
     let name = input.id.as_ref().unwrap().as_str();
     let name = camel_case_name(name);
@@ -544,7 +547,7 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
 
         let param_name = escape_rust_reserved(param_name.as_str());
 
-        let (param_type, annotations) = param_rust_type(param, config, |_x| "url::Url".to_string());
+        let (param_type, annotations) = param_rust_type(param, config, |_x| "url::Url".to_string(), options_names);
         let comment = match &param.r#type {
             TypeRef::Simple(name) => format!("was: {}", name),
             TypeRef::ResourceType(r) => match r {
@@ -635,7 +638,7 @@ fn test_generate_representation() {
 
     let config = Config::default();
 
-    let lines = generate_representation_struct_json(&input, &config);
+    let lines = generate_representation_struct_json(&input, &config, &HashMap::new());
 
     assert_eq!(
         lines,
@@ -682,7 +685,7 @@ fn test_supported_representation_def() {
 /// # Returns
 ///
 /// The Rust type for the representation
-pub fn rust_type_for_response(input: &Response, name: &str) -> String {
+pub fn rust_type_for_response(input: &Response, name: &str, options_names: &HashMap<Options, String>) -> String {
     let representations = input
         .representations
         .iter()
@@ -703,7 +706,7 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
 
                 let mut ret = Vec::new();
                 for param in &input.params {
-                    let (param_type, _annotations) = param_rust_type(param, &Config::default(), resource_type_rust_type);
+                    let (param_type, _annotations) = param_rust_type(param, &Config::default(), resource_type_rust_type, options_names);
                     ret.push(param_type);
                 }
                 if ret.len() == 1 {
@@ -716,7 +719,7 @@ pub fn rust_type_for_response(input: &Response, name: &str) -> String {
     } else if representations.is_empty() {
         let mut ret = Vec::new();
         for param in &input.params {
-            let (param_type, _annotations) = param_rust_type(param, &Config::default(), resource_type_rust_type);
+            let (param_type, _annotations) = param_rust_type(param, &Config::default(), resource_type_rust_type, options_names);
             ret.push(param_type);
         }
         if ret.len() == 1 {
@@ -751,7 +754,7 @@ fn test_rust_type_for_response() {
         ..Default::default()
     };
     assert_eq!(
-        rust_type_for_response(&input, "foo"),
+        rust_type_for_response(&input, "foo", &HashMap::new()),
         "String".to_string()
     );
 
@@ -782,7 +785,7 @@ fn test_rust_type_for_response() {
         },
     ];
     assert_eq!(
-        rust_type_for_response(&input, "foo"),
+        rust_type_for_response(&input, "foo", &HashMap::new()),
         "(String, String)".to_string()
     );
 
@@ -799,7 +802,7 @@ fn test_rust_type_for_response() {
         links: Vec::new(),
 
     }];
-    assert_eq!(rust_type_for_response(&input, "foo"), "Foo".to_string());
+    assert_eq!(rust_type_for_response(&input, "foo", &HashMap::new()), "Foo".to_string());
 
     input.params = vec![Param {
         id: Some("foo".to_string()),
@@ -813,7 +816,7 @@ fn test_rust_type_for_response() {
         path: None,
         links: Vec::new(),
     }];
-    assert_eq!(rust_type_for_response(&input, "foo"), "Foo".to_string());
+    assert_eq!(rust_type_for_response(&input, "foo", &HashMap::new()), "Foo".to_string());
 
     input.params = vec![Param {
         id: None,
@@ -827,7 +830,7 @@ fn test_rust_type_for_response() {
         path: None,
         links: Vec::new(),
     }];
-    assert_eq!(rust_type_for_response(&input, "foo"), "url::Url".to_string());
+    assert_eq!(rust_type_for_response(&input, "foo", &HashMap::new()), "url::Url".to_string());
 }
 
 pub fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config) -> Vec<String> {
@@ -923,7 +926,7 @@ fn test_apply_map_fn() {
     );
 }
 
-pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<String> {
+pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
     let mut lines = vec![];
 
     let name = input.id.as_str();
@@ -936,7 +939,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         ("()".to_string(), None)
     } else {
         assert_eq!(1, input.responses.len(), "expected 1 response for {}", name);
-        let mut return_type = rust_type_for_response(&input.responses[0], input.id.as_str());
+        let mut return_type = rust_type_for_response(&input.responses[0], input.id.as_str(), options_names);
         let map_fn = if let Some((map_type, map_fn)) = config.map_type_for_response.as_ref().and_then(|r| r(&name, &return_type)) {
             return_type = map_type;
             Some(map_fn)
@@ -986,7 +989,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
         if param.fixed.is_some() {
             continue;
         }
-        let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type);
+        let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type, options_names);
         let param_type = readonly_rust_type(param_type.as_str());
         let param_name = param.name.clone();
         let param_name = escape_rust_reserved(param_name.as_str());
@@ -995,7 +998,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
 
         lines.extend(format_arg_doc(param_name, param.doc.as_ref(), config));
     }
-    line.push_str(") -> Result<");
+    line.push_str(") -> std::result::Result<");
     line.push_str(ret_type.as_str());
 
     line.push_str(", Error> {\n");
@@ -1019,7 +1022,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config) -> Vec<
             let param_name = param.name.as_str();
             let param_name = snake_case_name(param_name);
             let param_name = escape_rust_reserved(param_name.as_str());
-            let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type);
+            let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type, options_names);
             let value = match param.r#type {
                 TypeRef::ResourceType(_) => { format!("&{}.url().to_string()", param_name) },
                 TypeRef::Simple(_) | TypeRef::NoType | TypeRef::Options(_) => { format!("&{}.to_string()", param_name) }
@@ -1214,9 +1217,9 @@ fn test_generate_method() {
         responses: vec![],
     };
     let config = Config::default();
-    let lines = generate_method(&input, "bar", &config);
+    let lines = generate_method(&input, "bar", &config, &HashMap::new());
     assert_eq!(lines, vec![
-        "    pub fn foo<'a>(&self, client: &'a dyn wadl::Client) -> Result<(), Error> {\n".to_string(),
+        "    pub fn foo<'a>(&self, client: &'a dyn wadl::Client) -> std::result::Result<(), Error> {\n".to_string(),
         "        let mut url_ = self.url().clone();\n".to_string(),
         "\n".to_string(),
         "        let mut req = reqwest::blocking::Request::new(reqwest::Method::GET, url_);\n".to_string(),
@@ -1231,7 +1234,7 @@ fn test_generate_method() {
     ]);
 }
 
-fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<String> {
+fn generate_resource_type(input: &ResourceType, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
     let mut lines = vec![];
 
     for doc in &input.docs {
@@ -1254,7 +1257,7 @@ fn generate_resource_type(input: &ResourceType, config: &Config) -> Vec<String> 
     lines.push(format!("impl {} {{\n", name));
 
     for method in &input.methods {
-        lines.extend(generate_method(method, input.id.as_str(), config));
+        lines.extend(generate_method(method, input.id.as_str(), config, options_names));
     }
 
     lines.push("}\n".to_string());
@@ -1279,7 +1282,7 @@ fn test_generate_resource_type() {
         subresources: vec![]
     };
     let config = Config::default();
-    let lines = generate_resource_type(&input, &config);
+    let lines = generate_resource_type(&input, &config, &HashMap::new());
     assert_eq!(lines, vec![
         "pub struct Foo (reqwest::Url);\n".to_string(),
         "\n".to_string(),
@@ -1337,21 +1340,114 @@ pub struct Config {
 
     /// Return whether a param is deprecated
     pub deprecated_param: Option<Box<dyn Fn(&Param) -> bool>>,
+
+    /// Return the name for an enum representation a set of options
+    ///
+    /// The callback can be used to determine if the name is already taken.
+    pub options_enum_name: Option<Box<dyn Fn(&Param, Box<dyn Fn(&str) -> bool>) -> String>>,
+}
+
+fn enum_rust_value(option: &str) -> String {
+    let name = camel_case_name(option.replace(' ', "-").as_str());
+
+    // Now, strip all characters not allowed in rust identifiers
+    let name = name.chars().filter(|c| c.is_alphanumeric() || *c == '_').collect::<String>();
+
+    // If the identifier starts with a digit, prefix it with '_' to make it a valid identifier
+    if name.chars().next().unwrap().is_numeric() {
+        format!("_{}", name)
+    } else {
+        name
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_enum_rust_value() {
+        assert_eq!(enum_rust_value("foo"), "Foo");
+        assert_eq!(enum_rust_value("foo bar"), "FooBar");
+        assert_eq!(enum_rust_value("foo bar blah"), "FooBarBlah");
+        assert_eq!(enum_rust_value("foo-bar"), "FooBar");
+    }
+}
+
+pub fn generate_options(name: &str, options: &crate::ast::Options) -> Vec<String> {
+    let mut lines = vec![];
+
+    lines.push("#[derive(Debug, Clone, Copy, PartialEq, Eq, std::hash::Hash, serde::Serialize, serde::Deserialize)]\n".to_string());
+    lines.push(format!("pub enum {} {{\n", name));
+
+    let mut option_map = HashMap::new();
+
+    for option in options.keys() {
+        let rust_name = enum_rust_value(option);
+        lines.push(format!("    #[serde(rename = \"{}\")]\n", option));
+        lines.push(format!("    {},\n", rust_name));
+        option_map.insert(option, rust_name);
+    }
+    lines.push("}\n".to_string());
+    lines.push("\n".to_string());
+
+    lines.push(format!("impl std::fmt::Display for {} {{\n", name));
+    lines.push("    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n".to_string());
+    lines.push("        match self {\n".to_string());
+    for (option, rust_name) in option_map {
+        lines.push(format!("            {}::{} => write!(f, \"{}\"),\n", name, rust_name, option));
+    }
+    lines.push("        }\n".to_string());
+    lines.push("    }\n".to_string());
+    lines.push("}\n".to_string());
+    lines
+}
+
+fn options_rust_enum_name(param: &Param, options: &HashMap<Options, String>) -> String {
+    let mut name = camel_case_name(param.name.as_str());
+    while options.values().any(|v| v == &name) {
+        name = format!("{}_", name);
+    }
+    name
 }
 
 pub fn generate(app: &Application, config: &Config) -> String {
     let mut lines = vec![];
+
+    let mut options = HashMap::new();
+
+    for param in app.iter_all_params() {
+        if let TypeRef::Options(os) = &param.r#type {
+            if options.contains_key(os) {
+                continue;
+            }
+            let name = if let Some(enum_name_fn) = config.options_enum_name.as_ref() {
+                let cb_options = options.clone();
+                let name = enum_name_fn(param, Box::new(move |name: &str| -> bool {  cb_options.values().any(|v| v == name) }));
+                let taken = options.iter().filter_map(|(k, v)| if v == &name { Some(k) } else { None }).collect::<Vec<_>>();
+                if !taken.is_empty() {
+                    panic!("Enum name {} is already taken by {:?} ({:?})", name, taken, options);
+                }
+                name
+            } else {
+                options_rust_enum_name(param, &options)
+            };
+            let enum_lines = generate_options(name.as_str(), os);
+            options.insert(os.clone(), name);
+            lines.extend(enum_lines);
+        }
+    }
 
     for doc in &app.docs {
         lines.extend(generate_doc(doc, 0, config));
     }
 
     for representation in &app.representations {
-        lines.extend(generate_representation(representation, config));
+        lines.extend(generate_representation(representation, config, &options));
     }
 
     for resource_type in &app.resource_types {
-        lines.extend(generate_resource_type(resource_type, config));
+        lines.extend(generate_resource_type(resource_type, config, &options));
     }
 
     lines.concat()

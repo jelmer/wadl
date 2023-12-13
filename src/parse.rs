@@ -1,5 +1,4 @@
 use crate::ast::*;
-use std::collections::HashMap;
 use std::io::Read;
 use url::Url;
 use xmltree::Element;
@@ -52,8 +51,8 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-pub fn parse_options(element: &Element) -> Option<HashMap<String, Option<mime::Mime>>> {
-    let mut options = HashMap::new();
+pub fn parse_options(element: &Element) -> Option<Options> {
+    let mut options = Options::new();
 
     for option_node in &element.children {
         if let Some(element) = option_node.as_element() {

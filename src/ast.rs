@@ -66,6 +66,21 @@ impl Application {
                     .flat_map(|rt| rt.iter_referenced_types()),
             )
     }
+
+    /// Iterate over all parameters defined in this application.
+    pub fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.iter_resources()
+            .flat_map(|(_u, r)| r.iter_all_params())
+            .chain(
+                self.resource_types
+                    .iter()
+                    .flat_map(|rt| rt.iter_all_params()),
+            )
+            .chain(
+                self.representations
+                    .iter()
+                    .flat_map(|r| r.iter_all_params()))
+    }
 }
 
 impl std::str::FromStr for Application {
@@ -122,11 +137,64 @@ impl ResourceTypeRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Options(HashMap<String, Option<mime::Mime>>);
+
+impl std::hash::Hash for Options {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let mut items = self.0.iter().collect::<Vec<_>>();
+        items.sort();
+        for (key, value) in items {
+            key.hash(state);
+            value.hash(state);
+        }
+    }
+}
+
+impl Options {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&str, Option<&mime::Mime>)> {
+        self.0.iter().map(|(k, v)| (k.as_str(), v.as_ref()))
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.0.keys().map(|k| k.as_str())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn insert(&mut self, key: String, value: Option<mime::Mime>) {
+        self.0.insert(key, value);
+    }
+
+    pub fn get(&self, key: &str) -> Option<&Option<mime::Mime>> {
+        self.0.get(key)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeRef {
     Simple(String),
     ResourceType(ResourceTypeRef),
     NoType,
-    Options(HashMap<String, Option<mime::Mime>>),
+    Options(Options)
+}
+
+impl TypeRef {
+    pub fn as_options(&self) -> Option<&Options> {
+        match self {
+            TypeRef::Options(o) => Some(o),
+            _ => None,
+        }
+    }
 }
 
 impl std::str::FromStr for TypeRef {
@@ -180,9 +248,12 @@ impl Resource {
 
     /// Iterate over all parameters defined in this resource.
     pub(crate) fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
-        self.params
-            .iter()
-            .chain(self.methods.iter().flat_map(|m| m.request.params.iter()))
+        let mut params = self.params.iter().collect::<Vec<_>>();
+
+        params.extend(self.subresources.iter().flat_map(|r| r.iter_all_params()));
+        params.extend(self.methods.iter().flat_map(|m| m.iter_all_params()));
+
+        params.into_iter()
     }
 
     /// Iterate over all types referenced by this resource.
@@ -220,6 +291,13 @@ pub struct Method {
     pub docs: Vec<Doc>,
     pub request: Request,
     pub responses: Vec<Response>,
+}
+
+impl Method {
+    fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.request.iter_all_params().chain(
+            self.responses.iter().flat_map(|r| r.iter_all_params()))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -289,6 +367,12 @@ pub struct RepresentationDef {
     pub params: Vec<Param>,
 }
 
+impl RepresentationDef {
+    fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.params.iter()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RepresentationRef {
     /// A reference to a representation defined in the same document.
@@ -329,6 +413,17 @@ impl Representation {
             Representation::Reference(_) => None,
             Representation::Definition(d) => Some(d),
         }
+    }
+
+    pub fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        // TODO: Make this into a proper iterator
+        let params = 
+        match self {
+            Representation::Reference(_) => vec![],
+            Representation::Definition(d) => d.iter_all_params().collect::<Vec<_>>(),
+        };
+
+        params.into_iter()
     }
 }
 
@@ -376,12 +471,34 @@ pub struct Request {
     pub representations: Vec<Representation>,
 }
 
+impl Request {
+    fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.params.iter().chain(
+            self.representations
+                .iter()
+                .filter_map(|r| r.as_def().map(|r| r.iter_all_params()))
+                .flatten(),
+        )
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Response {
     pub docs: Vec<Doc>,
     pub params: Vec<Param>,
     pub status: Option<i32>,
     pub representations: Vec<Representation>,
+}
+
+impl Response {
+    fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
+        self.params.iter().chain(
+            self.representations
+                .iter()
+                .filter_map(|r| r.as_def().map(|r| r.iter_all_params()))
+                .flatten(),
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -398,7 +515,7 @@ impl ResourceType {
     pub(crate) fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
         self.params
             .iter()
-            .chain(self.methods.iter().flat_map(|m| m.request.params.iter()))
+            .chain(self.methods.iter().flat_map(|m| m.iter_all_params()))
     }
 
     /// Returns an iterator over all types referenced by this resource type.
