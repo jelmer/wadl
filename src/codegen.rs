@@ -414,8 +414,6 @@ fn simple_type_rust_type(type_name: &str, param: &Param, config: &Config) -> (St
 }
 
 fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl Fn(&ResourceTypeRef) -> String, options_names: &HashMap<Options, String>) -> (String, Vec<String>) {
-    assert!(param.fixed.is_none());
-
     let (mut param_type, annotations) = if !param.links.is_empty() {
         if let Some(rt) = param.links[0].resource_type.as_ref() {
             (resource_type_rust_type(rt), vec![])
@@ -716,6 +714,8 @@ fn test_generate_representation() {
 fn supported_representation_def(d: &RepresentationDef) -> bool {
     d.media_type != Some(WADL_MIME_TYPE.parse().unwrap())
         && d.media_type != Some(XHTML_MIME_TYPE.parse().unwrap())
+        && d.media_type != Some(mime::APPLICATION_WWW_FORM_URLENCODED)
+        && d.media_type != Some(mime::MULTIPART_FORM_DATA)
 }
 
 #[test]
@@ -1007,6 +1007,87 @@ fn test_apply_map_fn() {
     );
 }
 
+pub fn serialize_representation_def(def: &RepresentationDef, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
+    let mut lines = vec![];
+    fn process_param(param: &Param, config: &Config, cb: impl Fn(&str, &str) -> String, options_names: &HashMap<Options, String>) -> Vec<String> {
+        let param_name = escape_rust_reserved(param.name.as_str());
+
+        let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type, options_names);
+        let mut indent = 4;
+        let mut lines = vec![];
+
+        let needs_iter = param_type.starts_with("Vec<") || param_type.starts_with("Option<Vec<");
+        let is_optional = param_type.starts_with("Option<");
+
+        if is_optional && param.fixed.is_none() {
+            lines.push(format!("{:indent$}if let Some({}) = {} {{\n", "", param_name, param_name, indent = indent));
+            indent += 4;
+        }
+        if needs_iter && param.fixed.is_none(){
+            lines.push(format!(
+                "{:indent$}for {} in {} {{\n",
+                "", param_name, param_name
+            ));
+            indent += 4;
+        }
+
+        let value = if let Some(fixed) = param.fixed.as_ref() {
+            format!("\"{}\"", fixed)
+        } else if param.links.is_empty() {
+            format!("&{}.to_string()", param_name)
+        } else {
+            format!("&{}.url().to_string()", param_name)
+        };
+
+        lines.push(format!("{:indent$}{}\n", "", cb(param.name.as_str(), value.as_str()), indent = indent));
+
+        if needs_iter && param.fixed.is_none() {
+            indent -= 4;
+            lines.push(format!("{:indent$}}}\n", "", indent = indent));
+        }
+
+        if is_optional && param.fixed.is_none(){
+            indent -= 4;
+            lines.push(format!("{:indent$}}}\n", "", indent = indent));
+        }
+
+        lines
+    }
+
+    match def.media_type.as_ref().map(|s| s.to_string()).as_deref() {
+        Some("multipart/form-data") => {
+            lines.push("let mut form = reqwest::blocking::multipart::Form::new();\n".to_string());
+            for param in def.params.iter() {
+                lines.extend(process_param(param, config, |name, value| {
+                    format!("form = form.text(\"{}\", {});", name, value.strip_prefix('&').unwrap_or(value))
+                }, options_names));
+            }
+            lines.push("req = req.multipart(form);\n".to_string());
+        },
+        Some("application/x-www-form-urlencoded") => {
+            lines.push("let mut serializer = form_urlencoded::Serializer::new(String::new());\n".to_string());
+            for param in def.params.iter() {
+                lines.extend(process_param(param, config, |name, value| format!("serializer.append_pair(\"{}\", {});", name, value), options_names));
+            }
+            lines.push("req = req.header(reqwest::header::CONTENT_TYPE, \"application/x-www-form-urlencoded\");\n".to_string());
+            lines.push("req = req.body(serializer.finish());\n".to_string());
+        },
+        Some("application/json") => {
+            lines.push("let mut o = serde_json::Value::Object::new();".to_string());
+
+            for param in def.params.iter() {
+                lines.extend(process_param(param, config, |name, value| format!("o.insert(\"{}\", {});", name, value), options_names));
+            }
+
+            lines.push("req = req.json(&o);\n".to_string());
+        }
+        o => {
+            panic!("unsupported media type {:?}", o);
+        }
+    }
+    lines
+}
+
 pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
     let mut lines = vec![];
 
@@ -1092,7 +1173,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options
         .all(|p| [ParamStyle::Header, ParamStyle::Query].contains(&p.style)));
 
     lines.push("        let mut url_ = self.url().clone();\n".to_string());
-    for param in params.iter().filter(|p| p.style == ParamStyle::Query) {
+    for param in input.request.params.iter().filter(|p| p.style == ParamStyle::Query) {
         if let Some(fixed) = param.fixed.as_ref() {
             assert!(!param.repeating);
             lines.push(format!(
@@ -1148,21 +1229,20 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options
 
     let method = input.name.as_str();
     lines.push(format!(
-        "        let mut req = reqwest::blocking::Request::new(reqwest::Method::{}, url_);\n",
+        "        let mut req = client.request(reqwest::Method::{}, url_);\n",
         method
     ));
 
     for representation in &input.request.representations {
         match representation {
-            Representation::Definition(_) => { }
-            Representation::Reference(_) => {
-                lines.push("        let body = serde_json::to_string(&representation)?;\n".to_string());
-                // TODO(jelmer): Support non-JSON representations
-                lines.push("        req.headers_mut().insert(reqwest::header::CONTENT_TYPE, \"application/json\".parse().unwrap());\n".to_string());
-                lines.push("        req.headers_mut().insert(reqwest::header::CONTENT_LENGTH, body.len().to_string().parse().unwrap());\n".to_string());
-                lines.push("        *req.body_mut() = Some(reqwest::blocking::Body::from(body));\n".to_string());
+            Representation::Definition(ref d) => {
+                lines.extend(indent(2, serialize_representation_def(d, config, options_names).into_iter()));
             }
-        }
+            Representation::Reference(_r) => {
+                // TODO(jelmer): Support non-JSON representations
+                lines.push("        req = req.json(&representation);\n".to_string());
+            }
+        };
     }
 
     let response_mime_types = input
@@ -1184,7 +1264,7 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options
 
     if !response_mime_types.is_empty() {
         lines.push(format!(
-            "        req.headers_mut().insert(reqwest::header::ACCEPT, \"{}\".parse().unwrap());\n",
+            "        req = req.header(reqwest::header::ACCEPT, \"{}\");\n",
             response_mime_types
                 .into_iter()
                 .map(|x| x.to_string())
@@ -1205,13 +1285,13 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options
         };
 
         lines.push(format!(
-            "        req.headers_mut().insert(\"{}\", {});\n",
+            "        req = req.header(\"{}\", {});\n",
             param.name, value
         ));
     }
 
     lines.push("\n".to_string());
-    lines.push("        let resp = client.execute(req)?;\n".to_string());
+    lines.push("        let resp = req.send()?;\n".to_string());
 
     lines.push("        match resp.status() {\n".to_string());
 
@@ -1533,6 +1613,10 @@ pub fn generate(app: &Application, config: &Config) -> String {
     }
 
     lines.concat()
+}
+
+fn indent(indent: usize, lines: impl Iterator<Item = String>) -> impl Iterator<Item = String> {
+    lines.map(move |line| format!("{}{}", " ".repeat(indent * 4), line))
 }
 
 #[test]
