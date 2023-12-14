@@ -145,7 +145,11 @@ pub fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> 
         lines.extend(vec![format!("/// # {}\n", title), "///\n".to_string()]);
     }
 
-    let text = format_doc(input, config);
+    let mut text = format_doc(input, config);
+
+    if let Some(reformat_docstring) = config.reformat_docstring.as_ref() {
+        text = reformat_docstring(&text);
+    }
 
     lines.extend(text.lines().map(|line| format!("///{}{}\n", if line.is_empty() { "" } else { " " }, line)));
     lines
@@ -1527,6 +1531,9 @@ pub struct Config {
     ///
     /// The callback can be used to determine if the name is already taken.
     pub options_enum_name: Option<Box<dyn Fn(&Param, Box<dyn Fn(&str) -> bool>) -> String>>,
+
+    /// Reformat a docstring; should already be in markdown
+    pub reformat_docstring: Option<Box<dyn Fn(&str) -> String>>,
 }
 
 fn enum_rust_value(option: &str) -> String {
