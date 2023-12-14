@@ -380,6 +380,13 @@ pub enum Representation {
 }
 
 impl Representation {
+    pub fn media_type(&self) -> Option<&mime::Mime> {
+        match self {
+            Representation::Reference(_) => None,
+            Representation::Definition(d) => d.media_type.as_ref(),
+        }
+    }
+
     pub fn url(&self, base_url: &Url) -> Option<Url> {
         match self {
             Representation::Reference(RepresentationRef::Id(id)) => {

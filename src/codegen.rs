@@ -1,8 +1,6 @@
 use crate::ast::*;
 use std::collections::HashMap;
 
-use crate::WADL_MIME_TYPE;
-
 /// MIME type for XHTML
 pub const XHTML_MIME_TYPE: &str = "application/xhtml+xml";
 
@@ -713,11 +711,8 @@ fn test_generate_representation() {
     );
 }
 
-fn supported_representation_def(d: &RepresentationDef) -> bool {
-    d.media_type != Some(WADL_MIME_TYPE.parse().unwrap())
-        && d.media_type != Some(XHTML_MIME_TYPE.parse().unwrap())
-        && d.media_type != Some(mime::APPLICATION_WWW_FORM_URLENCODED)
-        && d.media_type != Some(mime::MULTIPART_FORM_DATA)
+fn supported_representation_def(_d: &RepresentationDef) -> bool {
+    false
 }
 
 #[test]
@@ -730,7 +725,7 @@ fn test_supported_representation_def() {
     assert!(!supported_representation_def(&d));
 
     d.media_type = Some("application/json".parse().unwrap());
-    assert!(supported_representation_def(&d));
+    assert!(!supported_representation_def(&d));
 }
 
 /// Generate the Rust type for a representation
@@ -1297,24 +1292,19 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options
 
     lines.push("        match resp.status() {\n".to_string());
 
+    let serialize_return_types = |return_types: Vec<(String, bool)> | {
+        if return_types.is_empty() {
+            "Ok(())".to_string()
+        } else if return_types.len() == 1 {
+            format!("Ok({})", apply_map_fn(map_fn.as_deref(), &return_types[0].0, return_types[0].1))
+        } else {
+            let v = format!("({})", return_types.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", "));
+            format!("Ok({})", apply_map_fn(map_fn.as_deref(), &v, true))
+        }
+    };
+
     for response in input.responses.iter() {
         let mut return_types = vec![];
-
-        // TODO(jelmer): match on media type
-        if let Some(status) = response.status {
-            lines.push(format!("            s if s.as_u16() == reqwest::StatusCode::{} => {{\n", status));
-        } else {
-            lines.push("            s if s.is_success() => {\n".to_string());
-        }
-        for representation in response.representations.iter() {
-            match representation {
-                Representation::Definition(_) => { }
-                Representation::Reference(r) => {
-                    let rt = representation_rust_type(r);
-                    return_types.push((format!("resp.json::<{}>()?", rt), true));
-                }
-            }
-        }
 
         for param in response.params.iter() {
             match &param.style {
@@ -1342,20 +1332,48 @@ pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options
             }
         }
 
-        if return_types.is_empty() {
-            lines.push("        Ok(())\n".to_string());
-        } else if return_types.len() == 1 {
-            lines.push(format!("                Ok({})\n", apply_map_fn(map_fn.as_deref(), &return_types[0].0, return_types[0].1)));
+        // TODO(jelmer): match on media type
+        if let Some(status) = response.status {
+            lines.push(format!("            s if s.as_u16() == reqwest::StatusCode::{} => {{\n", status));
         } else {
-            let v = format!("({})", return_types.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", "));
-            lines.push(format!("                 Ok({})\n", apply_map_fn(map_fn.as_deref(), &v, true)));
+            lines.push("            s if s.is_success() => {\n".to_string());
         }
+
+        if !response.representations.is_empty() {
+            lines.push("                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| x.to_str().unwrap()).map(|x| x.parse().unwrap());\n".to_string());
+            lines.push("                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string());
+            for representation in response.representations.iter() {
+                let media_type = representation.media_type().unwrap_or(&mime::APPLICATION_JSON);
+                lines.push(format!("                    Some(\"{}\") => {{\n", media_type));
+                let t = match representation {
+                    Representation::Definition(_) => { None }
+                    Representation::Reference(r) => {
+                        let rt = representation_rust_type(r);
+
+                        Some((format!("resp.json::<{}>()?", rt), true))
+                    }
+                };
+                if let Some(t) = t {
+                    let mut return_types = return_types.clone();
+                    return_types.insert(0, t);
+                    lines.push(format!("                             {}\n", serialize_return_types(return_types)));
+                } else {
+                    lines.push("                        unimplemented!();\n".to_string());
+                }
+                lines.push("                        }\n".to_string());
+            }
+            lines.push("                    _ => { Err(Error::UnhandledContentType(resp)) }\n".to_string());
+            lines.push("                }\n".to_string());
+        } else {
+            lines.push(format!("                {}\n", serialize_return_types(return_types)));
+        }
+
         lines.push("            }\n".to_string());
     }
     if input.responses.is_empty() {
         lines.push("            s if s.is_success() => Ok(()),\n".to_string());
     }
-    lines.push("            _ => Err(wadl::Error::UnhandledResponse(resp))\n".to_string());
+    lines.push("            _ => Err(wadl::Error::UnhandledStatus(resp))\n".to_string());
     lines.push("        }\n".to_string());
     lines.push("    }\n".to_string());
     lines.push("\n".to_string());
@@ -1391,7 +1409,7 @@ fn test_generate_method() {
         "        let resp = req.send()?;\n".to_string(),
         "        match resp.status() {\n".to_string(),
         "            s if s.is_success() => Ok(()),\n".to_string(),
-        "            _ => Err(wadl::Error::UnhandledResponse(resp))\n".to_string(),
+        "            _ => Err(wadl::Error::UnhandledStatus(resp))\n".to_string(),
         "        }\n".to_string(),
         "    }\n".to_string(),
         "\n".to_string(),

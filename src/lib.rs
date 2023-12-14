@@ -45,8 +45,11 @@ pub enum Error {
     /// The WADL could not be parsed.
     Wadl(ParseError),
 
-    /// The response was not handled by the library.
-    UnhandledResponse(reqwest::blocking::Response),
+    /// The response status was not handled by the library.
+    UnhandledStatus(reqwest::blocking::Response),
+
+    /// The response content type was not handled by the library.
+    UnhandledContentType(reqwest::blocking::Response),
 }
 
 impl From<serde_json::Error> for Error {
@@ -63,7 +66,8 @@ impl std::fmt::Display for Error {
             Error::Url(err) => write!(f, "URL error: {}", err),
             Error::Json(err) => write!(f, "JSON error: {}", err),
             Error::Wadl(err) => write!(f, "WADL error: {}", err),
-            Error::UnhandledResponse(res) => write!(f, "Unhandled response. Code: {}, response type: {}", res.status(), res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
+            Error::UnhandledStatus(res) => write!(f, "Unhandled response. Code: {}, response type: {}", res.status(), res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
+            Error::UnhandledContentType(res) => write!(f, "Unhandled response content type: {}", res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
         }
     }
 }
