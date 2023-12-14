@@ -1,8 +1,13 @@
+//! # WADL
+//!
+//! A crate for parsing WADL files and generating Rust code from them.
+
 pub mod ast;
 #[cfg(feature = "codegen")]
 pub mod codegen;
 mod parse;
 
+/// The MIME type of WADL files.
 pub const WADL_MIME_TYPE: &str = "application/vnd.sun.wadl+xml";
 
 pub use parse::{parse, parse_bytes, parse_file, parse_string, Error as ParseError};
@@ -28,10 +33,19 @@ impl Client for reqwest::blocking::Client {
 #[derive(Debug)]
 pub enum Error {
     InvalidUrl,
+
     Reqwest(reqwest::Error),
+
+    /// The URL could not be parsed.
     Url(url::ParseError),
+
+    /// The JSON could not be parsed.
     Json(serde_json::Error),
+
+    /// The WADL could not be parsed.
     Wadl(ParseError),
+
+    /// The response was not handled by the library.
     UnhandledResponse(reqwest::blocking::Response),
 }
 
