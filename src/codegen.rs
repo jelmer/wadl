@@ -722,7 +722,7 @@ fn supported_representation_def(_d: &RepresentationDef) -> bool {
 #[test]
 fn test_supported_representation_def() {
     let mut d = RepresentationDef::default();
-    d.media_type = Some(WADL_MIME_TYPE.parse().unwrap());
+    d.media_type = Some(crate::WADL_MIME_TYPE.parse().unwrap());
     assert!(!supported_representation_def(&d));
 
     d.media_type = Some(XHTML_MIME_TYPE.parse().unwrap());
