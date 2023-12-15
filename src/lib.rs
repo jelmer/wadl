@@ -1,8 +1,13 @@
+//! # WADL
+//!
+//! A crate for parsing WADL files and generating Rust code from them.
+
 pub mod ast;
 #[cfg(feature = "codegen")]
 pub mod codegen;
 mod parse;
 
+/// The MIME type of WADL files.
 pub const WADL_MIME_TYPE: &str = "application/vnd.sun.wadl+xml";
 
 pub use parse::{parse, parse_bytes, parse_file, parse_string, Error as ParseError};
@@ -28,11 +33,23 @@ impl Client for reqwest::blocking::Client {
 #[derive(Debug)]
 pub enum Error {
     InvalidUrl,
+
     Reqwest(reqwest::Error),
+
+    /// The URL could not be parsed.
     Url(url::ParseError),
+
+    /// The JSON could not be parsed.
     Json(serde_json::Error),
+
+    /// The WADL could not be parsed.
     Wadl(ParseError),
-    UnhandledResponse(reqwest::blocking::Response),
+
+    /// The response status was not handled by the library.
+    UnhandledStatus(reqwest::blocking::Response),
+
+    /// The response content type was not handled by the library.
+    UnhandledContentType(reqwest::blocking::Response),
 }
 
 impl From<serde_json::Error> for Error {
@@ -49,7 +66,8 @@ impl std::fmt::Display for Error {
             Error::Url(err) => write!(f, "URL error: {}", err),
             Error::Json(err) => write!(f, "JSON error: {}", err),
             Error::Wadl(err) => write!(f, "WADL error: {}", err),
-            Error::UnhandledResponse(res) => write!(f, "Unhandled response. Code: {}, response type: {}", res.status(), res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
+            Error::UnhandledStatus(res) => write!(f, "Unhandled response. Code: {}, response type: {}", res.status(), res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
+            Error::UnhandledContentType(res) => write!(f, "Unhandled response content type: {}", res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
         }
     }
 }
