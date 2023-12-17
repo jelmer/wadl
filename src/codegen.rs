@@ -418,7 +418,13 @@ fn simple_type_rust_type(type_name: &str, param: &Param, config: &Config) -> (St
 fn param_rust_type(param: &Param, config: &Config, resource_type_rust_type: impl Fn(&ResourceTypeRef) -> String, options_names: &HashMap<Options, String>) -> (String, Vec<String>) {
     let (mut param_type, annotations) = if !param.links.is_empty() {
         if let Some(rt) = param.links[0].resource_type.as_ref() {
-            (resource_type_rust_type(rt), vec![])
+            let name = resource_type_rust_type(rt);
+
+            if let Some(override_type_name) = config.override_type_name.as_ref().and_then(|x| x(name.as_str(), param.name.as_str())) {
+                (override_type_name, vec![])
+            } else {
+                (name, vec![])
+            }
         } else {
             ("url::Url".to_string(), vec![])
         }
@@ -509,7 +515,8 @@ fn readonly_rust_type(name: &str) -> String {
         "String" => "&str".to_string(),
         x if x.starts_with("Vec<") && x.ends_with('>') => {
             format!("&[{}]", x[4..x.len() - 1].trim())
-        }
+        },
+        x if x.starts_with('*') => x[1..].to_string(),
         x => format!("&{}", x),
     }
 }
@@ -1010,10 +1017,11 @@ fn test_apply_map_fn() {
 
 pub fn serialize_representation_def(def: &RepresentationDef, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
     let mut lines = vec![];
-    fn process_param(param: &Param, config: &Config, cb: impl Fn(&str, &str) -> String, options_names: &HashMap<Options, String>) -> Vec<String> {
+    fn process_param(param: &Param, config: &Config, cb: impl Fn(&str, &str, &str) -> String, options_names: &HashMap<Options, String>) -> Vec<String> {
         let param_name = escape_rust_reserved(param.name.as_str());
 
         let (param_type, _annotations) = param_rust_type(param, config, resource_type_rust_type, options_names);
+        let param_type = readonly_rust_type(&param_type);
         let mut indent = 4;
         let mut lines = vec![];
 
@@ -1040,7 +1048,7 @@ pub fn serialize_representation_def(def: &RepresentationDef, config: &Config, op
             format!("&{}.url().to_string()", param_name)
         };
 
-        lines.push(format!("{:indent$}{}\n", "", cb(param.name.as_str(), value.as_str()), indent = indent));
+        lines.push(format!("{:indent$}{}\n", "", cb(param_type.as_str(), param.name.as_str(), value.as_str()), indent = indent));
 
         if needs_iter && param.fixed.is_none() {
             indent -= 4;
@@ -1059,8 +1067,13 @@ pub fn serialize_representation_def(def: &RepresentationDef, config: &Config, op
         Some("multipart/form-data") => {
             lines.push("let mut form = reqwest::blocking::multipart::Form::new();\n".to_string());
             for param in def.params.iter() {
-                lines.extend(process_param(param, config, |name, value| {
-                    format!("form = form.text(\"{}\", {});", name, value.strip_prefix('&').unwrap_or(value))
+                lines.extend(process_param(param, config, |param_type, name, value| {
+                    format!("form = form.part(\"{}\", {});", name,
+                        if let Some(convert_to_multipart) = config.convert_to_multipart.as_ref().and_then(|x| x(param_type, value)) {
+                            convert_to_multipart
+                        } else {
+                            format!("reqwest::blocking::multipart::Part::text({})", value.strip_prefix('&').unwrap_or(value))
+                        })
                 }, options_names));
             }
             lines.push("req = req.multipart(form);\n".to_string());
@@ -1068,7 +1081,7 @@ pub fn serialize_representation_def(def: &RepresentationDef, config: &Config, op
         Some("application/x-www-form-urlencoded") => {
             lines.push("let mut serializer = form_urlencoded::Serializer::new(String::new());\n".to_string());
             for param in def.params.iter() {
-                lines.extend(process_param(param, config, |name, value| format!("serializer.append_pair(\"{}\", {});", name, value), options_names));
+                lines.extend(process_param(param, config, |_type, name, value| format!("serializer.append_pair(\"{}\", {});", name, value), options_names));
             }
             lines.push("req = req.header(reqwest::header::CONTENT_TYPE, \"application/x-www-form-urlencoded\");\n".to_string());
             lines.push("req = req.body(serializer.finish());\n".to_string());
@@ -1077,7 +1090,7 @@ pub fn serialize_representation_def(def: &RepresentationDef, config: &Config, op
             lines.push("let mut o = serde_json::Value::Object::new();".to_string());
 
             for param in def.params.iter() {
-                lines.extend(process_param(param, config, |name, value| format!("o.insert(\"{}\", {});", name, value), options_names));
+                lines.extend(process_param(param, config, |_type, name, value| format!("o.insert(\"{}\", {});", name, value), options_names));
             }
 
             lines.push("req = req.json(&o);\n".to_string());
@@ -1534,6 +1547,9 @@ pub struct Config {
 
     /// Reformat a docstring; should already be in markdown
     pub reformat_docstring: Option<Box<dyn Fn(&str) -> String>>,
+
+    /// Convert a string to a multipart Part, given a type name and value
+    pub convert_to_multipart: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
 }
 
 fn enum_rust_value(option: &str) -> String {
