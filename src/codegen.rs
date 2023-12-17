@@ -618,7 +618,7 @@ fn generate_representation_struct_json(input: &RepresentationDef, config: &Confi
         let (param_type, annotations) = param_rust_type(param, config, |_x| "url::Url".to_string(), options_names);
 
         // We provide accessors for resource types
-        let is_pub = param.links.is_empty();
+        let is_pub = true;
 
         lines.push(format!("    // was: {}\n", param.r#type));
         for doc in &param.doc {
