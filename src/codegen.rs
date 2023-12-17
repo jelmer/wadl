@@ -1081,7 +1081,13 @@ pub fn serialize_representation_def(def: &RepresentationDef, config: &Config, op
         Some("application/x-www-form-urlencoded") => {
             lines.push("let mut serializer = form_urlencoded::Serializer::new(String::new());\n".to_string());
             for param in def.params.iter() {
-                lines.extend(process_param(param, config, |_type, name, value| format!("serializer.append_pair(\"{}\", {});", name, value), options_names));
+                lines.extend(process_param(param, config, |r#type, name, value| {
+                    if r#type.contains("[") {
+                        format!("for value in {} {{ serializer.append_pair(\"{}\", &value.to_string()); }}", value.strip_prefix("&").unwrap().strip_suffix(".to_string()").unwrap(), name)
+                    } else {
+                        format!("serializer.append_pair(\"{}\", {});", name, value)
+                    }
+                }, options_names));
             }
             lines.push("req = req.header(reqwest::header::CONTENT_TYPE, \"application/x-www-form-urlencoded\");\n".to_string());
             lines.push("req = req.body(serializer.finish());\n".to_string());
