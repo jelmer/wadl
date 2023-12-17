@@ -50,6 +50,14 @@ pub enum Error {
 
     /// The response content type was not handled by the library.
     UnhandledContentType(reqwest::blocking::Response),
+
+    Io(std::io::Error),
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::Io(err)
+    }
 }
 
 impl From<serde_json::Error> for Error {
@@ -68,6 +76,7 @@ impl std::fmt::Display for Error {
             Error::Wadl(err) => write!(f, "WADL error: {}", err),
             Error::UnhandledStatus(res) => write!(f, "Unhandled response. Code: {}, response type: {}", res.status(), res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
             Error::UnhandledContentType(res) => write!(f, "Unhandled response content type: {}", res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
+            Error::Io(err) => write!(f, "IO error: {}", err),
         }
     }
 }
