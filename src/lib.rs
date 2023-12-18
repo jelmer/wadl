@@ -100,3 +100,19 @@ impl From<ParseError> for Error {
         Error::Wadl(err)
     }
 }
+
+pub fn get_wadl_resource_by_href(client: &dyn Client, href: &url::Url) -> Result<crate::ast::Resource, Error> {
+    let mut req = client.request(reqwest::Method::GET, href.clone());
+
+    req = req.header(reqwest::header::ACCEPT, WADL_MIME_TYPE);
+
+    let res = req.send()?;
+
+    let text = res.text()?;
+
+    let application = parse_string(&text)?;
+
+    let resource = application.get_resource_by_href(href).unwrap();
+
+    Ok(resource.clone())
+}

@@ -1109,6 +1109,66 @@ pub fn serialize_representation_def(def: &RepresentationDef, config: &Config, op
 }
 
 pub fn generate_method(input: &Method, parent_id: &str, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
+    let mut lines = generate_method_representation(input, parent_id, config, options_names);
+
+    for response in input.responses.iter() {
+        if response.representations.iter().any(|r| r.media_type().as_ref().map(|s| s.to_string()).as_deref() == Some(crate::WADL_MIME_TYPE)) {
+            lines.extend(generate_method_wadl(input, parent_id, config))
+        }
+    }
+
+    lines
+}
+
+pub fn generate_method_wadl(input: &Method, parent_id: &str, _config: &Config) -> Vec<String> {
+    let mut lines = vec![];
+
+    let name = input.id.as_str();
+    let name = name
+        .strip_prefix(format!("{}-", parent_id).as_str())
+        .unwrap_or(name);
+    let name = snake_case_name(name);
+
+    lines.push(format!("    pub fn {}_wadl<'a>(&self, client: &'a dyn wadl::Client) -> std::result::Result<wadl::ast::Resource, Error> {{\n", name));
+
+    lines.push("        let mut url_ = self.url().clone();\n".to_string());
+    for param in input.request.params.iter().filter(|p| p.style == ParamStyle::Query) {
+        if let Some(fixed) = param.fixed.as_ref() {
+            assert!(!param.repeating);
+            lines.push(format!(
+                "        url_.query_pairs_mut().append_pair(\"{}\", \"{}\");\n",
+                param.name, fixed
+            ));
+      }
+    }
+
+    lines.push("\n".to_string());
+
+    let method = input.name.as_str();
+    lines.push(format!(
+        "        let mut req = client.request(reqwest::Method::{}, url_);\n",
+        method
+    ));
+
+    lines.push(format!(
+        "        req = req.header(reqwest::header::ACCEPT, \"{}\");\n",
+        crate::WADL_MIME_TYPE));
+
+    lines.push("\n".to_string());
+
+    lines.push("        let wadl: wadl::ast::Application = req.send()?.error_for_status()?.text()?.parse()?;\n".to_string());
+    lines.push("        let resource = wadl.get_resource_by_href(self.url()).unwrap();\n".to_string());
+
+    lines.push("        Ok(resource.clone())\n".to_string());
+
+    lines.push("    }\n".to_string());
+
+    lines.push("\n".to_string());
+
+    lines
+}
+
+pub fn generate_method_representation(input: &Method, parent_id: &str, config: &Config, options_names: &HashMap<Options, String>) -> Vec<String> {
     let mut lines = vec![];
 
     let name = input.id.as_str();
@@ -1681,3 +1741,4 @@ fn test_generate_empty() {
     let lines = generate(&input, &config);
     assert_eq!(lines, "".to_string());
 }
+
