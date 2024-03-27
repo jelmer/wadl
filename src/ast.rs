@@ -116,14 +116,28 @@ impl std::str::FromStr for ResourceTypeRef {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(s) = s.strip_prefix('#') {
-            Ok(ResourceTypeRef::Id(s.to_string()))
-        } else {
-            Ok(ResourceTypeRef::Link(
-                s.parse().map_err(|e| format!("{}", e))?,
-            ))
+        match s {
+            "" => Ok(ResourceTypeRef::Empty),
+            s => {
+                if let Some(s) = s.strip_prefix('#') {
+                    Ok(ResourceTypeRef::Id(s.to_string()))
+                } else {
+                    Ok(ResourceTypeRef::Link(s.parse().map_err(|e| format!("{}", e))?))
+                }
+            }
         }
     }
+}
+
+#[test]
+fn parse_resource_type_ref() {
+    use std::str::FromStr;
+    use crate::ast::ResourceTypeRef::*;
+    assert_eq!(Empty, ResourceTypeRef::from_str("").unwrap());
+    assert_eq!(Id("id".to_owned()), ResourceTypeRef::from_str("#id").unwrap());
+    assert_eq!(Link(Url::parse("https://example.com").unwrap()),
+               ResourceTypeRef::from_str("https://example.com").unwrap());
+    
 }
 
 impl ResourceTypeRef {
