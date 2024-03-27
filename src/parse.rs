@@ -634,7 +634,10 @@ fn parse_response(response_element: &Element) -> Response {
     let status = response_element
         .attributes
         .get("status")
-        .map(|s| s.parse().unwrap());
+        .filter(|s| !s.is_empty())
+        .map(|s| s.parse::<i32>()
+            .map_err(|e| format!("Cannot parse String \"{}\" into status code. {}", s, e))
+            .expect("should parse status code from string"));
 
     let params = parse_params(response_element, &[ParamStyle::Header]);
 
