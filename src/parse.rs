@@ -419,7 +419,13 @@ fn parse_docs(resource_element: &Element) -> Vec<Doc> {
 
                 let namespaces = element.namespaces.as_ref();
 
-                let xmlns = namespaces.and_then(|x| x.get("").map(|u| u.parse().unwrap()));
+                let xmlns = namespaces
+                    .and_then(|x| x.get(""))
+                    .filter(|s| !s.is_empty())
+                    .map(|u| u.parse()
+                        .map_err(|e| format!("Cannot parse string \"{}\" to Url with error {}", u, e))
+                        .expect("provided string should be successfully parsed to Url")
+                    );
 
                 docs.push(Doc {
                     title,
