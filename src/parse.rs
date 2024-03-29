@@ -1,6 +1,7 @@
 use crate::ast::*;
 use std::io::Read;
-use url::Url;
+use iri_string::spec::IriSpec;
+use iri_string::types::{RiReferenceString};
 use xmltree::Element;
 
 #[allow(unused)]
@@ -203,7 +204,8 @@ fn parse_resource(element: &Element) -> Result<Resource, Error> {
         .map(|s| s.as_str())
         .unwrap_or("")
         .split(' ')
-        .map(|x| x.parse::<ResourceTypeRef>().unwrap())
+        .map(|x| x.parse::<ResourceTypeRef>()
+            .expect("cannot parse to Resource Ref"))
         .collect();
     let query_type: mime::Mime = element
         .attributes
@@ -417,7 +419,13 @@ fn parse_docs(resource_element: &Element) -> Vec<Doc> {
 
                 let namespaces = element.namespaces.as_ref();
 
-                let xmlns = namespaces.and_then(|x| x.get("").map(|u| u.parse().unwrap()));
+                let xmlns = namespaces
+                    .and_then(|x| x.get(""))
+                    .filter(|s| !s.is_empty())
+                    .map(|u| u.parse()
+                        .map_err(|e| format!("Cannot parse string \"{}\" to Url with error {}", u, e))
+                        .expect("provided string should be successfully parsed to Url")
+                    );
 
                 docs.push(Doc {
                     title,
@@ -483,13 +491,13 @@ pub fn parse<R: Read>(reader: R) -> Result<Application, Error> {
                 for grammar_node in &element.children {
                     if let Some(element) = grammar_node.as_element() {
                         if element.name == "include" {
-                            let href: Url = element
+                            let href: RiReferenceString<IriSpec> = element
                                 .attributes
                                 .get("href")
                                 .cloned()
-                                .unwrap()
-                                .parse()
-                                .unwrap();
+                                .expect("href attribute is required")
+                                .parse::<RiReferenceString<IriSpec>>()
+                                .expect("cannot parse to Iri");
                             grammars.push(Grammar { href });
                         }
                     }
@@ -626,7 +634,10 @@ fn parse_response(response_element: &Element) -> Response {
     let status = response_element
         .attributes
         .get("status")
-        .map(|s| s.parse().unwrap());
+        .filter(|s| !s.is_empty())
+        .map(|s| s.parse::<i32>()
+            .map_err(|e| format!("Cannot parse String \"{}\" into status code. {}", s, e))
+            .expect("should parse status code from string"));
 
     let params = parse_params(response_element, &[ParamStyle::Header]);
 
@@ -784,7 +795,7 @@ fn test_parse_method() {
     assert_eq!(method.request.docs, vec![Doc { content: "Filter the list of widgets".to_string(), ..Default::default() }]);
     assert_eq!(method.request.params.len(), 1);
     assert_eq!(method.request.params[0].name, "filter");
-    assert_eq!(method.request.params[0].doc.as_ref().unwrap(), &Doc{ content: "Filter the list of widgets".to_string(), ..Default::default() });
+    assert_eq!(method.request.params[0].doc.as_ref().unwrap(), &Doc { content: "Filter the list of widgets".to_string(), ..Default::default() });
     assert_eq!(method.responses.len(), 1);
     assert_eq!(method.responses[0].docs, vec![Doc { content: "Return a list of widgets".to_string(), ..Default::default() }]);
     assert_eq!(method.responses[0].status, Some(200));
@@ -845,7 +856,7 @@ fn test_parse_methods() {
     assert_eq!(methods[0].request.docs, vec![Doc { content: "Filter the list of widgets".to_string(), ..Default::default() }]);
     assert_eq!(methods[0].request.params.len(), 1);
     assert_eq!(methods[0].request.params[0].name, "filter");
-    assert_eq!(methods[0].request.params[0].doc.as_ref().unwrap(), &Doc{ content: "Filter the list of widgets".to_string(), ..Default::default() });
+    assert_eq!(methods[0].request.params[0].doc.as_ref().unwrap(), &Doc { content: "Filter the list of widgets".to_string(), ..Default::default() });
     assert_eq!(methods[0].responses.len(), 1);
     assert_eq!(methods[0].responses[0].docs, vec![Doc { content: "Return a list of widgets".to_string(), ..Default::default() }]);
 }
