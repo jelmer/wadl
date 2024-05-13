@@ -10,7 +10,7 @@ default-run = "wadlc"
 
 [dependencies]
 clap = { version = "4.5.4", features = ["derive", "env"], optional = true }
-env_logger = { version = "0.10.2", optional = true }
+env_logger = { version = "0.11.1", optional = true }
 form_urlencoded = "1.2.1"
 html2md = { version = "0.2.14", optional = true }
 lazy_static = "1.4.0"
