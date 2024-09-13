@@ -14,7 +14,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Install cargo-all-features
+      run: cargo install cargo-all-features
     - name: Build
       run: cargo build --verbose
+      env:
+        RUSTFLAGS: -Dwarnings
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test-all-features --verbose
+      env:
+        RUSTFLAGS: -Dwarnings
