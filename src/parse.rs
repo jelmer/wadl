@@ -5,13 +5,22 @@ use std::io::Read;
 use xmltree::Element;
 
 #[allow(unused)]
+/// The namespace of the WADL XML schema.
 pub const WADL_NS: &str = "http://wadl.dev.java.net/2009/02";
 
 #[derive(Debug)]
+/// Errors that can occur while parsing a WADL document.
 pub enum Error {
+    /// An I/O error occurred while reading the document.
     Io(std::io::Error),
+
+    /// An error occurred while parsing the XML document.
     Xml(xmltree::ParseError),
+
+    /// An error occurred while parsing a URL.
     Url(url::ParseError),
+
+    /// An error occurred while parsing a MIME type.
     Mime(mime::FromStrError),
 }
 
@@ -97,6 +106,7 @@ fn test_parse_options() {
     );
 }
 
+/// Parse a `param` element.
 pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -> Vec<Param> {
     let mut params = Vec::new();
 
@@ -482,6 +492,7 @@ fn parse_resource_type(resource_type_element: &Element) -> Result<ResourceType, 
     })
 }
 
+/// Parse an XML application description from a reader.
 pub fn parse<R: Read>(reader: R) -> Result<Application, Error> {
     let mut resources = Vec::new();
     let mut resource_types = Vec::new();

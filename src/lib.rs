@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 //! # WADL
 //!
 //! A crate for parsing WADL files and generating Rust code from them.
@@ -20,7 +21,9 @@ pub trait Resource {
     fn url(&self) -> &Url;
 }
 
+/// A client for a WADL API
 pub trait Client {
+    /// Create a new request builder
     fn request(&self, method: reqwest::Method, url: url::Url) -> reqwest::blocking::RequestBuilder;
 }
 
@@ -31,9 +34,12 @@ impl Client for reqwest::blocking::Client {
 }
 
 #[derive(Debug)]
+/// The error type for this crate.
 pub enum Error {
+    /// The URL is invalid.
     InvalidUrl,
 
+    /// A reqwest error occurred.
     Reqwest(reqwest::Error),
 
     /// The URL could not be parsed.
@@ -51,6 +57,7 @@ pub enum Error {
     /// The response content type was not handled by the library.
     UnhandledContentType(reqwest::blocking::Response),
 
+    /// An I/O error occurred.
     Io(std::io::Error),
 }
 
@@ -118,6 +125,7 @@ impl From<ParseError> for Error {
     }
 }
 
+/// Get the WADL AST from a URL.
 pub fn get_wadl_resource_by_href(
     client: &dyn Client,
     href: &url::Url,
