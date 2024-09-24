@@ -74,8 +74,25 @@ impl std::fmt::Display for Error {
             Error::Url(err) => write!(f, "URL error: {}", err),
             Error::Json(err) => write!(f, "JSON error: {}", err),
             Error::Wadl(err) => write!(f, "WADL error: {}", err),
-            Error::UnhandledStatus(res) => write!(f, "Unhandled response. Code: {}, response type: {}", res.status(), res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
-            Error::UnhandledContentType(res) => write!(f, "Unhandled response content type: {}", res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
+            Error::UnhandledStatus(res) => write!(
+                f,
+                "Unhandled response. Code: {}, response type: {}",
+                res.status(),
+                res.headers()
+                    .get("content-type")
+                    .unwrap_or(&reqwest::header::HeaderValue::from_static("unknown"))
+                    .to_str()
+                    .unwrap_or("unknown")
+            ),
+            Error::UnhandledContentType(res) => write!(
+                f,
+                "Unhandled response content type: {}",
+                res.headers()
+                    .get("content-type")
+                    .unwrap_or(&reqwest::header::HeaderValue::from_static("unknown"))
+                    .to_str()
+                    .unwrap_or("unknown")
+            ),
             Error::Io(err) => write!(f, "IO error: {}", err),
         }
     }
@@ -101,7 +118,10 @@ impl From<ParseError> for Error {
     }
 }
 
-pub fn get_wadl_resource_by_href(client: &dyn Client, href: &url::Url) -> Result<crate::ast::Resource, Error> {
+pub fn get_wadl_resource_by_href(
+    client: &dyn Client,
+    href: &url::Url,
+) -> Result<crate::ast::Resource, Error> {
     let mut req = client.request(reqwest::Method::GET, href.clone());
 
     req = req.header(reqwest::header::ACCEPT, WADL_MIME_TYPE);
