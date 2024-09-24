@@ -1,9 +1,12 @@
+//! Generate Rust code from WADL files
+
 use crate::ast::*;
 use std::collections::HashMap;
 
 /// MIME type for XHTML
 pub const XHTML_MIME_TYPE: &str = "application/xhtml+xml";
 
+#[allow(missing_docs)]
 pub enum ParamContainer<'a> {
     Request(&'a Method, &'a Request),
     Response(&'a Method, &'a Response),
@@ -147,7 +150,7 @@ fn format_doc(input: &Doc, config: &Config) -> String {
 ///
 /// # Returns
 /// A vector of strings, each representing a line of the docstring.
-pub fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> {
+fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
 
     if let Some(title) = input.title.as_ref() {
@@ -443,7 +446,8 @@ fn generate_representation(
     lines
 }
 
-pub fn resource_type_rust_type(r: &ResourceTypeRef) -> String {
+/// Generate the Rust type for a representation
+fn resource_type_rust_type(r: &ResourceTypeRef) -> String {
     if let Some(id) = r.id() {
         camel_case_name(id)
     } else {
@@ -923,7 +927,7 @@ fn test_supported_representation_def() {
 /// # Returns
 ///
 /// The Rust type for the representation
-pub fn rust_type_for_response(
+fn rust_type_for_response(
     method: &Method,
     input: &Response,
     name: &str,
@@ -1127,7 +1131,7 @@ fn test_rust_type_for_response() {
     );
 }
 
-pub fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config) -> Vec<String> {
+fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config) -> Vec<String> {
     let mut lines = Vec::new();
     if let Some(doc) = doc.as_ref() {
         let doc = format_doc(doc, config);
@@ -1217,7 +1221,7 @@ fn test_apply_map_fn() {
     );
 }
 
-pub fn serialize_representation_def(
+fn serialize_representation_def(
     def: &RepresentationDef,
     config: &Config,
     options_names: &HashMap<Options, String>,
@@ -1364,7 +1368,7 @@ pub fn serialize_representation_def(
     lines
 }
 
-pub fn generate_method(
+fn generate_method(
     input: &Method,
     parent_id: &str,
     config: &Config,
@@ -1383,7 +1387,7 @@ pub fn generate_method(
     lines
 }
 
-pub fn generate_method_wadl(input: &Method, parent_id: &str, _config: &Config) -> Vec<String> {
+fn generate_method_wadl(input: &Method, parent_id: &str, _config: &Config) -> Vec<String> {
     let mut lines = vec![];
 
     let name = input.id.as_str();
@@ -1439,7 +1443,7 @@ pub fn generate_method_wadl(input: &Method, parent_id: &str, _config: &Config) -
     lines
 }
 
-pub fn generate_method_representation(
+fn generate_method_representation(
     input: &Method,
     parent_id: &str,
     config: &Config,
@@ -1940,6 +1944,7 @@ fn test_generate_resource_type() {
 
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
+/// Configuration for code generation
 pub struct Config {
     /// Based on the listed type and name of a parameter, determine the rust type
     pub override_type_name: Option<Box<dyn Fn(&ParamContainer, &str, &str) -> Option<String>>>,
@@ -1978,6 +1983,7 @@ pub struct Config {
     /// Extend the generated method
     pub extend_method: Option<Box<dyn Fn(&str, &str, &str, &Config) -> Vec<String>>>,
 
+    /// Retrieve visibility for a method
     pub method_visibility: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
 
     /// Return whether a param is deprecated
@@ -2025,7 +2031,7 @@ mod tests {
     }
 }
 
-pub fn generate_options(name: &str, options: &crate::ast::Options) -> Vec<String> {
+fn generate_options(name: &str, options: &crate::ast::Options) -> Vec<String> {
     let mut lines = vec![];
 
     lines.push("#[derive(Debug, Clone, Copy, PartialEq, Eq, std::hash::Hash, serde::Serialize, serde::Deserialize)]\n".to_string());
@@ -2067,6 +2073,16 @@ fn options_rust_enum_name(param: &Param, options: &HashMap<Options, String>) -> 
     name
 }
 
+/// Generate code from a WADL application definition.
+///
+/// This function generates Rust code from a WADL application definition.
+/// The generated code includes Rust types for the representations and
+/// resource types defined in the WADL application, as well as methods
+/// for interacting with the resources.
+///
+/// # Arguments
+/// * `app` - The WADL application definition.
+/// * `config` - Configuration for the code generation.
 pub fn generate(app: &Application, config: &Config) -> String {
     let mut lines = vec![];
 

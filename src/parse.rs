@@ -1,17 +1,26 @@
 use crate::ast::*;
-use std::io::Read;
 use iri_string::spec::IriSpec;
-use iri_string::types::{RiReferenceString};
+use iri_string::types::RiReferenceString;
+use std::io::Read;
 use xmltree::Element;
 
 #[allow(unused)]
+/// The namespace of the WADL XML schema.
 pub const WADL_NS: &str = "http://wadl.dev.java.net/2009/02";
 
 #[derive(Debug)]
+/// Errors that can occur while parsing a WADL document.
 pub enum Error {
+    /// An I/O error occurred while reading the document.
     Io(std::io::Error),
+
+    /// An error occurred while parsing the XML document.
     Xml(xmltree::ParseError),
+
+    /// An error occurred while parsing a URL.
     Url(url::ParseError),
+
+    /// An error occurred while parsing a MIME type.
     Mime(mime::FromStrError),
 }
 
@@ -97,6 +106,7 @@ fn test_parse_options() {
     );
 }
 
+/// Parse a `param` element.
 pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -> Vec<Param> {
     let mut params = Vec::new();
 
@@ -118,35 +128,44 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     .unwrap();
                 let options = parse_options(element);
                 let id = element.attributes.get("id").cloned();
-                let links = element.children.iter().filter_map(|node| {
-                    if let Some(element) = node.as_element() {
-                        if element.name == "link" {
-                            let resource_type: Option<ResourceTypeRef> = element
-                                .attributes
-                                .get("resource_type").map(|x| x.parse().unwrap());
-                            let relation = element.attributes.get("rel").cloned();
-                            let reverse_relation = element.attributes.get("rev").cloned();
-                            let doc = parse_docs(element);
-                            Some(Link {
-                                resource_type,
-                                relation,
-                                reverse_relation,
-                                doc: if doc.len() == 1 {
-                                    Some(doc.into_iter().next().unwrap())
-                                } else {
-                                    assert!(doc.is_empty());
-                                    None
-                                },
-                            })
+                let links = element
+                    .children
+                    .iter()
+                    .filter_map(|node| {
+                        if let Some(element) = node.as_element() {
+                            if element.name == "link" {
+                                let resource_type: Option<ResourceTypeRef> = element
+                                    .attributes
+                                    .get("resource_type")
+                                    .map(|x| x.parse().unwrap());
+                                let relation = element.attributes.get("rel").cloned();
+                                let reverse_relation = element.attributes.get("rev").cloned();
+                                let doc = parse_docs(element);
+                                Some(Link {
+                                    resource_type,
+                                    relation,
+                                    reverse_relation,
+                                    doc: if doc.len() == 1 {
+                                        Some(doc.into_iter().next().unwrap())
+                                    } else {
+                                        assert!(doc.is_empty());
+                                        None
+                                    },
+                                })
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }
-                    } else {
-                        None
-                    }
-                }).collect::<Vec<_>>();
+                    })
+                    .collect::<Vec<_>>();
                 let name = element.attributes.get("name").cloned().unwrap();
-                let r#type = element.attributes.get("type").cloned().unwrap_or_else(|| "string".to_string());
+                let r#type = element
+                    .attributes
+                    .get("type")
+                    .cloned()
+                    .unwrap_or_else(|| "string".to_string());
                 let path = element.attributes.get("path").cloned();
                 let required = element
                     .attributes
@@ -204,13 +223,16 @@ fn parse_resource(element: &Element) -> Result<Resource, Error> {
         .map(|s| s.as_str())
         .unwrap_or("")
         .split(' ')
-        .map(|x| x.parse::<ResourceTypeRef>()
-            .expect("cannot parse to Resource Ref"))
+        .map(|x| {
+            x.parse::<ResourceTypeRef>()
+                .expect("cannot parse to Resource Ref")
+        })
         .collect();
     let query_type: mime::Mime = element
         .attributes
         .get("queryType")
-        .map(|s| s.as_str().parse()).transpose()?
+        .map(|s| s.as_str().parse())
+        .transpose()?
         .unwrap_or(mime::APPLICATION_WWW_FORM_URLENCODED);
 
     let docs = parse_docs(element);
@@ -412,20 +434,20 @@ fn parse_docs(resource_element: &Element) -> Vec<Doc> {
                         _ => {}
                     };
                 }
-                let lang = element
-                    .attributes
-                    .get("lang")
-                    .cloned();
+                let lang = element.attributes.get("lang").cloned();
 
                 let namespaces = element.namespaces.as_ref();
 
                 let xmlns = namespaces
                     .and_then(|x| x.get(""))
                     .filter(|s| !s.is_empty())
-                    .map(|u| u.parse()
-                        .map_err(|e| format!("Cannot parse string \"{}\" to Url with error {}", u, e))
-                        .expect("provided string should be successfully parsed to Url")
-                    );
+                    .map(|u| {
+                        u.parse()
+                            .map_err(|e| {
+                                format!("Cannot parse string \"{}\" to Url with error {}", u, e)
+                            })
+                            .expect("provided string should be successfully parsed to Url")
+                    });
 
                 docs.push(Doc {
                     title,
@@ -470,6 +492,7 @@ fn parse_resource_type(resource_type_element: &Element) -> Result<ResourceType, 
     })
 }
 
+/// Parse an XML application description from a reader.
 pub fn parse<R: Read>(reader: R) -> Result<Application, Error> {
     let mut resources = Vec::new();
     let mut resource_types = Vec::new();
@@ -618,7 +641,10 @@ fn test_parse_representations() {
         assert!(r.params[0].required);
         assert_eq!(r.params[0].fixed, Some("baz".to_string()));
         assert_eq!(r.params[0].doc.as_ref().unwrap().content, "Foo");
-        assert_eq!(r.params[0].doc.as_ref().unwrap().lang, Some("en".to_string()));
+        assert_eq!(
+            r.params[0].doc.as_ref().unwrap().lang,
+            Some("en".to_string())
+        );
         assert_eq!(r.params[1].name, "bar");
         assert_eq!(r.params[1].style, ParamStyle::Query);
         assert!(r.params[1].required);
@@ -635,9 +661,11 @@ fn parse_response(response_element: &Element) -> Response {
         .attributes
         .get("status")
         .filter(|s| !s.is_empty())
-        .map(|s| s.parse::<i32>()
-            .map_err(|e| format!("Cannot parse String \"{}\" into status code. {}", s, e))
-            .expect("should parse status code from string"));
+        .map(|s| {
+            s.parse::<i32>()
+                .map_err(|e| format!("Cannot parse String \"{}\" into status code. {}", s, e))
+                .expect("should parse status code from string")
+        });
 
     let params = parse_params(response_element, &[ParamStyle::Header]);
 
@@ -791,16 +819,46 @@ fn test_parse_method() {
 
     assert_eq!(method.id, "");
     assert_eq!(method.name, "GET");
-    assert_eq!(method.docs, vec![Doc { content: "Get a list of all the widgets".to_string(), ..Default::default() }]);
-    assert_eq!(method.request.docs, vec![Doc { content: "Filter the list of widgets".to_string(), ..Default::default() }]);
+    assert_eq!(
+        method.docs,
+        vec![Doc {
+            content: "Get a list of all the widgets".to_string(),
+            ..Default::default()
+        }]
+    );
+    assert_eq!(
+        method.request.docs,
+        vec![Doc {
+            content: "Filter the list of widgets".to_string(),
+            ..Default::default()
+        }]
+    );
     assert_eq!(method.request.params.len(), 1);
     assert_eq!(method.request.params[0].name, "filter");
-    assert_eq!(method.request.params[0].doc.as_ref().unwrap(), &Doc { content: "Filter the list of widgets".to_string(), ..Default::default() });
+    assert_eq!(
+        method.request.params[0].doc.as_ref().unwrap(),
+        &Doc {
+            content: "Filter the list of widgets".to_string(),
+            ..Default::default()
+        }
+    );
     assert_eq!(method.responses.len(), 1);
-    assert_eq!(method.responses[0].docs, vec![Doc { content: "Return a list of widgets".to_string(), ..Default::default() }]);
+    assert_eq!(
+        method.responses[0].docs,
+        vec![Doc {
+            content: "Return a list of widgets".to_string(),
+            ..Default::default()
+        }]
+    );
     assert_eq!(method.responses[0].status, Some(200));
     assert_eq!(method.responses[0].representations.len(), 1);
-    assert_eq!(method.responses[0].representations[0].as_def().unwrap().media_type, Some("application/json".parse().unwrap()));
+    assert_eq!(
+        method.responses[0].representations[0]
+            .as_def()
+            .unwrap()
+            .media_type,
+        Some("application/json".parse().unwrap())
+    );
     assert_eq!(method.responses[0].params.len(), 2);
 }
 
@@ -852,11 +910,35 @@ fn test_parse_methods() {
     assert_eq!(methods.len(), 1);
     assert_eq!(methods[0].id, "");
     assert_eq!(methods[0].name, "GET");
-    assert_eq!(methods[0].docs, vec![Doc { content: "Get a list of all the widgets".to_string(), ..Default::default() }]);
-    assert_eq!(methods[0].request.docs, vec![Doc { content: "Filter the list of widgets".to_string(), ..Default::default() }]);
+    assert_eq!(
+        methods[0].docs,
+        vec![Doc {
+            content: "Get a list of all the widgets".to_string(),
+            ..Default::default()
+        }]
+    );
+    assert_eq!(
+        methods[0].request.docs,
+        vec![Doc {
+            content: "Filter the list of widgets".to_string(),
+            ..Default::default()
+        }]
+    );
     assert_eq!(methods[0].request.params.len(), 1);
     assert_eq!(methods[0].request.params[0].name, "filter");
-    assert_eq!(methods[0].request.params[0].doc.as_ref().unwrap(), &Doc { content: "Filter the list of widgets".to_string(), ..Default::default() });
+    assert_eq!(
+        methods[0].request.params[0].doc.as_ref().unwrap(),
+        &Doc {
+            content: "Filter the list of widgets".to_string(),
+            ..Default::default()
+        }
+    );
     assert_eq!(methods[0].responses.len(), 1);
-    assert_eq!(methods[0].responses[0].docs, vec![Doc { content: "Return a list of widgets".to_string(), ..Default::default() }]);
+    assert_eq!(
+        methods[0].responses[0].docs,
+        vec![Doc {
+            content: "Return a list of widgets".to_string(),
+            ..Default::default()
+        }]
+    );
 }

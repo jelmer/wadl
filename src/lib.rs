@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 //! # WADL
 //!
 //! A crate for parsing WADL files and generating Rust code from them.
@@ -20,7 +21,9 @@ pub trait Resource {
     fn url(&self) -> &Url;
 }
 
+/// A client for a WADL API
 pub trait Client {
+    /// Create a new request builder
     fn request(&self, method: reqwest::Method, url: url::Url) -> reqwest::blocking::RequestBuilder;
 }
 
@@ -31,9 +34,12 @@ impl Client for reqwest::blocking::Client {
 }
 
 #[derive(Debug)]
+/// The error type for this crate.
 pub enum Error {
+    /// The URL is invalid.
     InvalidUrl,
 
+    /// A reqwest error occurred.
     Reqwest(reqwest::Error),
 
     /// The URL could not be parsed.
@@ -51,6 +57,7 @@ pub enum Error {
     /// The response content type was not handled by the library.
     UnhandledContentType(reqwest::blocking::Response),
 
+    /// An I/O error occurred.
     Io(std::io::Error),
 }
 
@@ -74,8 +81,25 @@ impl std::fmt::Display for Error {
             Error::Url(err) => write!(f, "URL error: {}", err),
             Error::Json(err) => write!(f, "JSON error: {}", err),
             Error::Wadl(err) => write!(f, "WADL error: {}", err),
-            Error::UnhandledStatus(res) => write!(f, "Unhandled response. Code: {}, response type: {}", res.status(), res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
-            Error::UnhandledContentType(res) => write!(f, "Unhandled response content type: {}", res.headers().get("content-type").unwrap_or(&reqwest::header::HeaderValue::from_static("unknown")).to_str().unwrap_or("unknown")),
+            Error::UnhandledStatus(res) => write!(
+                f,
+                "Unhandled response. Code: {}, response type: {}",
+                res.status(),
+                res.headers()
+                    .get("content-type")
+                    .unwrap_or(&reqwest::header::HeaderValue::from_static("unknown"))
+                    .to_str()
+                    .unwrap_or("unknown")
+            ),
+            Error::UnhandledContentType(res) => write!(
+                f,
+                "Unhandled response content type: {}",
+                res.headers()
+                    .get("content-type")
+                    .unwrap_or(&reqwest::header::HeaderValue::from_static("unknown"))
+                    .to_str()
+                    .unwrap_or("unknown")
+            ),
             Error::Io(err) => write!(f, "IO error: {}", err),
         }
     }
@@ -101,7 +125,11 @@ impl From<ParseError> for Error {
     }
 }
 
-pub fn get_wadl_resource_by_href(client: &dyn Client, href: &url::Url) -> Result<crate::ast::Resource, Error> {
+/// Get the WADL AST from a URL.
+pub fn get_wadl_resource_by_href(
+    client: &dyn Client,
+    href: &url::Url,
+) -> Result<crate::ast::Resource, Error> {
     let mut req = client.request(reqwest::Method::GET, href.clone());
 
     req = req.header(reqwest::header::ACCEPT, WADL_MIME_TYPE);
