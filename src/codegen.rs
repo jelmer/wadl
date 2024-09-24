@@ -150,7 +150,7 @@ fn format_doc(input: &Doc, config: &Config) -> String {
 ///
 /// # Returns
 /// A vector of strings, each representing a line of the docstring.
-fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> {
+pub fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
 
     if let Some(title) = input.title.as_ref() {
