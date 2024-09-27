@@ -24,11 +24,13 @@ syn = { version = "2", optional = true }
 url = "2"
 xmltree = ">=0.10.0"
 iri-string = { version = ">=0.7", features = ["std"] }
+async-trait = { version = "0.1", optional = true }
 
 [features]
 default = ["cli"]
 codegen = ["dep:proc-macro2", "dep:quote", "dep:syn", "dep:html2md"]
 cli = ["dep:clap", "dep:env_logger", "codegen"]
+async = ["dep:async-trait"]
 
 [[bin]]
 name = "wadlc"
