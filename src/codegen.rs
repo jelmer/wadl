@@ -317,7 +317,7 @@ fn simple_type_rust_type(
     config: &Config,
 ) -> (String, Vec<String>) {
     let tn = if let Some(override_name) = config.override_type_name.as_ref() {
-        override_name(container, type_name, param.name.as_str())
+        override_name(container, type_name, param.name.as_str(), config)
     } else {
         None
     };
@@ -351,7 +351,7 @@ fn param_rust_type(
             if let Some(override_type_name) = config
                 .override_type_name
                 .as_ref()
-                .and_then(|x| x(container, name.as_str(), param.name.as_str()))
+                .and_then(|x| x(container, name.as_str(), param.name.as_str(), config))
             {
                 (override_type_name, vec![])
             } else {
@@ -922,7 +922,7 @@ fn generate_method_representation(
         let map_fn = if let Some((map_type, map_fn)) = config
             .map_type_for_response
             .as_ref()
-            .and_then(|r| r(&name, &return_type))
+            .and_then(|r| r(&name, &return_type, config))
         {
             return_type = map_type;
             Some(map_fn)
@@ -939,12 +939,13 @@ fn generate_method_representation(
         .unwrap_or("pub".to_string());
 
     let mut line = format!(
-        "    {}fn {}<'a>(&self, client: &'a dyn {}",
+        "    {}{}fn {}<'a>(&self, client: &'a dyn {}",
         if visibility.is_empty() {
             "".to_string()
         } else {
             format!("{} ", visibility)
         },
+        if config.r#async { "async " } else { "" },
         name,
         config.client_trait_name()
     );
@@ -1248,7 +1249,14 @@ fn generate_method_representation(
                     Representation::Reference(r) => {
                         let rt = representation_rust_type(r);
 
-                        Some((format!("resp.json::<{}>()?", rt), true))
+                        Some((
+                            format!(
+                                "resp.json::<{}>(){}?",
+                                rt,
+                                if config.r#async { ".await" } else { "" }
+                            ),
+                            true,
+                        ))
                     }
                 };
                 if let Some(t) = t {
@@ -1354,7 +1362,8 @@ pub struct Config {
     pub r#async: bool,
 
     /// Based on the listed type and name of a parameter, determine the rust type
-    pub override_type_name: Option<Box<dyn Fn(&ParamContainer, &str, &str) -> Option<String>>>,
+    pub override_type_name:
+        Option<Box<dyn Fn(&ParamContainer, &str, &str, &Config) -> Option<String>>>,
 
     /// Support renaming param accessor functions
     pub param_accessor_rename: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
@@ -1379,7 +1388,7 @@ pub struct Config {
     pub resource_type_visibility: Option<Box<dyn Fn(&str) -> Option<String>>>,
 
     /// Map a method response type to a different type and a function to map the response
-    pub map_type_for_response: Option<Box<dyn Fn(&str, &str) -> Option<(String, String)>>>,
+    pub map_type_for_response: Option<Box<dyn Fn(&str, &str, &Config) -> Option<(String, String)>>>,
 
     /// Map an accessor function name to a different type
     pub map_type_for_accessor: Option<Box<dyn Fn(&str) -> Option<(String, String)>>>,
