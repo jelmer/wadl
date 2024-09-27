@@ -40,7 +40,7 @@ pub mod r#async {
 
     /// A client for a WADL API
     #[async_trait::async_trait]
-    pub trait Client {
+    pub trait Client: Sync + Send {
         /// Create a new request builder
         async fn request(&self, method: reqwest::Method, url: url::Url) -> reqwest::RequestBuilder;
     }
@@ -54,7 +54,7 @@ pub mod r#async {
 
     /// Get the WADL AST from a URL.
     pub async fn get_wadl_resource_by_href(
-        client: &impl Client,
+        client: &dyn Client,
         href: &url::Url,
     ) -> Result<crate::ast::Resource, Error> {
         let mut req = client.request(reqwest::Method::GET, href.clone()).await;
