@@ -33,6 +33,46 @@ impl Client for reqwest::blocking::Client {
     }
 }
 
+#[cfg(feature = "async")]
+/// Asynchronous features
+pub mod r#async {
+    use super::*;
+
+    /// A client for a WADL API
+    #[async_trait::async_trait]
+    pub trait Client: Sync + Send {
+        /// Create a new request builder
+        async fn request(&self, method: reqwest::Method, url: url::Url) -> reqwest::RequestBuilder;
+    }
+
+    #[async_trait::async_trait]
+    impl Client for reqwest::Client {
+        async fn request(&self, method: reqwest::Method, url: url::Url) -> reqwest::RequestBuilder {
+            self.request(method, url)
+        }
+    }
+
+    /// Get the WADL AST from a URL.
+    pub async fn get_wadl_resource_by_href(
+        client: &dyn Client,
+        href: &url::Url,
+    ) -> Result<crate::ast::Resource, Error> {
+        let mut req = client.request(reqwest::Method::GET, href.clone()).await;
+
+        req = req.header(reqwest::header::ACCEPT, super::WADL_MIME_TYPE);
+
+        let res = req.send().await?;
+
+        let text = res.text().await?;
+
+        let application = super::parse_string(&text)?;
+
+        let resource = application.get_resource_by_href(href).unwrap();
+
+        Ok(resource.clone())
+    }
+}
+
 #[derive(Debug)]
 /// The error type for this crate.
 pub enum Error {
@@ -52,10 +92,10 @@ pub enum Error {
     Wadl(ParseError),
 
     /// The response status was not handled by the library.
-    UnhandledStatus(reqwest::blocking::Response),
+    UnhandledStatus(reqwest::StatusCode),
 
     /// The response content type was not handled by the library.
-    UnhandledContentType(reqwest::blocking::Response),
+    UnhandledContentType(Option<mime::Mime>),
 
     /// An I/O error occurred.
     Io(std::io::Error),
@@ -81,25 +121,9 @@ impl std::fmt::Display for Error {
             Error::Url(err) => write!(f, "URL error: {}", err),
             Error::Json(err) => write!(f, "JSON error: {}", err),
             Error::Wadl(err) => write!(f, "WADL error: {}", err),
-            Error::UnhandledStatus(res) => write!(
-                f,
-                "Unhandled response. Code: {}, response type: {}",
-                res.status(),
-                res.headers()
-                    .get("content-type")
-                    .unwrap_or(&reqwest::header::HeaderValue::from_static("unknown"))
-                    .to_str()
-                    .unwrap_or("unknown")
-            ),
-            Error::UnhandledContentType(res) => write!(
-                f,
-                "Unhandled response content type: {}",
-                res.headers()
-                    .get("content-type")
-                    .unwrap_or(&reqwest::header::HeaderValue::from_static("unknown"))
-                    .to_str()
-                    .unwrap_or("unknown")
-            ),
+            Error::UnhandledContentType(Some(c)) => write!(f, "Unhandled content type: {}", c),
+            Error::UnhandledContentType(None) => write!(f, "No content type"),
+            Error::UnhandledStatus(s) => write!(f, "Unhandled status: {}", s),
             Error::Io(err) => write!(f, "IO error: {}", err),
         }
     }

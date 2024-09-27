@@ -317,7 +317,7 @@ fn simple_type_rust_type(
     config: &Config,
 ) -> (String, Vec<String>) {
     let tn = if let Some(override_name) = config.override_type_name.as_ref() {
-        override_name(container, type_name, param.name.as_str())
+        override_name(container, type_name, param.name.as_str(), config)
     } else {
         None
     };
@@ -351,7 +351,7 @@ fn param_rust_type(
             if let Some(override_type_name) = config
                 .override_type_name
                 .as_ref()
-                .and_then(|x| x(container, name.as_str(), param.name.as_str()))
+                .and_then(|x| x(container, name.as_str(), param.name.as_str(), config))
             {
                 (override_type_name, vec![])
             } else {
@@ -671,7 +671,7 @@ fn serialize_representation_def(
         let param_name = escape_rust_reserved(param.name.as_str());
 
         let (param_type, _annotations) = param_rust_type(
-            &container,
+            container,
             param,
             config,
             resource_type_rust_type,
@@ -734,7 +734,15 @@ fn serialize_representation_def(
 
     match def.media_type.as_ref().map(|s| s.to_string()).as_deref() {
         Some("multipart/form-data") => {
-            lines.push("let mut form = reqwest::blocking::multipart::Form::new();\n".to_string());
+            let mp_mod = if !config.r#async {
+                "reqwest::blocking"
+            } else {
+                "reqwest"
+            };
+            lines.push(format!(
+                "let mut form = {}::multipart::Form::new();\n",
+                mp_mod
+            ));
             for param in def.params.iter() {
                 lines.extend(process_param(
                     param,
@@ -752,7 +760,8 @@ fn serialize_representation_def(
                                 convert_to_multipart
                             } else {
                                 format!(
-                                    "reqwest::blocking::multipart::Part::text({})",
+                                    "{}::multipart::Part::text({})",
+                                    mp_mod,
                                     value.strip_prefix('&').unwrap_or(value)
                                 )
                             }
@@ -821,7 +830,7 @@ fn generate_method(
     lines
 }
 
-fn generate_method_wadl(input: &Method, parent_id: &str, _config: &Config) -> Vec<String> {
+fn generate_method_wadl(input: &Method, parent_id: &str, config: &Config) -> Vec<String> {
     let mut lines = vec![];
 
     let name = input.id.as_str();
@@ -830,7 +839,9 @@ fn generate_method_wadl(input: &Method, parent_id: &str, _config: &Config) -> Ve
         .unwrap_or(name);
     let name = snake_case_name(name);
 
-    lines.push(format!("    pub fn {}_wadl<'a>(&self, client: &'a dyn wadl::Client) -> std::result::Result<wadl::ast::Resource, Error> {{\n", name));
+    let async_prefix = if config.r#async { "async " } else { "" };
+
+    lines.push(format!("    pub {}fn {}_wadl<'a>(&self, client: &'a dyn {}) -> std::result::Result<wadl::ast::Resource, wadl::Error> {{\n", async_prefix, name, config.client_trait_name()));
 
     lines.push("        let mut url_ = self.url().clone();\n".to_string());
     for param in input
@@ -851,10 +862,17 @@ fn generate_method_wadl(input: &Method, parent_id: &str, _config: &Config) -> Ve
     lines.push("\n".to_string());
 
     let method = input.name.as_str();
-    lines.push(format!(
-        "        let mut req = client.request(reqwest::Method::{}, url_);\n",
-        method
-    ));
+    if config.r#async {
+        lines.push(format!(
+            "        let mut req = client.request(reqwest::Method::{}, url_).await;\n",
+            method
+        ));
+    } else {
+        lines.push(format!(
+            "        let mut req = client.request(reqwest::Method::{}, url_);\n",
+            method
+        ));
+    }
 
     lines.push(format!(
         "        req = req.header(reqwest::header::ACCEPT, \"{}\");\n",
@@ -863,7 +881,11 @@ fn generate_method_wadl(input: &Method, parent_id: &str, _config: &Config) -> Ve
 
     lines.push("\n".to_string());
 
-    lines.push("        let wadl: wadl::ast::Application = req.send()?.error_for_status()?.text()?.parse()?;\n".to_string());
+    if config.r#async {
+        lines.push("        let wadl: wadl::ast::Application = req.send().await?.error_for_status()?.text().await?.parse()?;\n".to_string());
+    } else {
+        lines.push("        let wadl: wadl::ast::Application = req.send()?.error_for_status()?.text()?.parse()?;\n".to_string());
+    }
     lines.push(
         "        let resource = wadl.get_resource_by_href(self.url()).unwrap();\n".to_string(),
     );
@@ -895,16 +917,12 @@ fn generate_method_representation(
         ("()".to_string(), None)
     } else {
         assert_eq!(1, input.responses.len(), "expected 1 response for {}", name);
-        let mut return_type = rust_type_for_response(
-            &input,
-            &input.responses[0],
-            input.id.as_str(),
-            options_names,
-        );
+        let mut return_type =
+            rust_type_for_response(input, &input.responses[0], input.id.as_str(), options_names);
         let map_fn = if let Some((map_type, map_fn)) = config
             .map_type_for_response
             .as_ref()
-            .and_then(|r| r(&name, &return_type))
+            .and_then(|r| r(&name, &return_type, config))
         {
             return_type = map_type;
             Some(map_fn)
@@ -921,13 +939,15 @@ fn generate_method_representation(
         .unwrap_or("pub".to_string());
 
     let mut line = format!(
-        "    {}fn {}<'a>(&self, client: &'a dyn wadl::Client",
+        "    {}{}fn {}<'a>(&self, client: &'a dyn {}",
         if visibility.is_empty() {
             "".to_string()
         } else {
             format!("{} ", visibility)
         },
-        name
+        if config.r#async { "async " } else { "" },
+        name,
+        config.client_trait_name()
     );
 
     let mut params = input.request.params.iter().collect::<Vec<_>>();
@@ -962,7 +982,7 @@ fn generate_method_representation(
         }
     }
 
-    let container = ParamContainer::Request(&input, &input.request);
+    let container = ParamContainer::Request(input, &input.request);
     for param in &params {
         if param.fixed.is_some() {
             continue;
@@ -985,7 +1005,7 @@ fn generate_method_representation(
     line.push_str(") -> std::result::Result<");
     line.push_str(ret_type.as_str());
 
-    line.push_str(", Error> {\n");
+    line.push_str(", wadl::Error> {\n");
     lines.push(line);
 
     assert!(input
@@ -1061,10 +1081,17 @@ fn generate_method_representation(
     lines.push("\n".to_string());
 
     let method = input.name.as_str();
-    lines.push(format!(
-        "        let mut req = client.request(reqwest::Method::{}, url_);\n",
-        method
-    ));
+    if config.r#async {
+        lines.push(format!(
+            "        let mut req = client.request(reqwest::Method::{}, url_).await;\n",
+            method
+        ));
+    } else {
+        lines.push(format!(
+            "        let mut req = client.request(reqwest::Method::{}, url_);\n",
+            method
+        ));
+    }
 
     for representation in &input.request.representations {
         match representation {
@@ -1127,7 +1154,11 @@ fn generate_method_representation(
     }
 
     lines.push("\n".to_string());
-    lines.push("        let resp = req.send()?;\n".to_string());
+    if config.r#async {
+        lines.push("        let resp = req.send().await?;\n".to_string());
+    } else {
+        lines.push("        let resp = req.send()?;\n".to_string());
+    }
 
     lines.push("        match resp.status() {\n".to_string());
 
@@ -1218,7 +1249,14 @@ fn generate_method_representation(
                     Representation::Reference(r) => {
                         let rt = representation_rust_type(r);
 
-                        Some((format!("resp.json::<{}>()?", rt), true))
+                        Some((
+                            format!(
+                                "resp.json::<{}>(){}?",
+                                rt,
+                                if config.r#async { ".await" } else { "" }
+                            ),
+                            true,
+                        ))
                     }
                 };
                 if let Some(t) = t {
@@ -1234,7 +1272,8 @@ fn generate_method_representation(
                 lines.push("                        }\n".to_string());
             }
             lines.push(
-                "                    _ => { Err(Error::UnhandledContentType(resp)) }\n".to_string(),
+                "                    _ => { Err(wadl::Error::UnhandledContentType(content_type)) }\n"
+                    .to_string(),
             );
             lines.push("                }\n".to_string());
         } else {
@@ -1249,7 +1288,7 @@ fn generate_method_representation(
     if input.responses.is_empty() {
         lines.push("            s if s.is_success() => Ok(()),\n".to_string());
     }
-    lines.push("            _ => Err(wadl::Error::UnhandledStatus(resp))\n".to_string());
+    lines.push("            s => Err(wadl::Error::UnhandledStatus(s))\n".to_string());
     lines.push("        }\n".to_string());
     lines.push("    }\n".to_string());
     lines.push("\n".to_string());
@@ -1306,7 +1345,7 @@ fn generate_resource_type(
 
     lines.push("}\n".to_string());
     lines.push("\n".to_string());
-    lines.push(format!("impl Resource for {} {{\n", name));
+    lines.push(format!("impl wadl::Resource for {} {{\n", name));
     lines.push("    fn url(&self) -> &reqwest::Url {\n".to_string());
     lines.push("        &self.0\n".to_string());
     lines.push("    }\n".to_string());
@@ -1319,8 +1358,12 @@ fn generate_resource_type(
 #[allow(clippy::type_complexity)]
 /// Configuration for code generation
 pub struct Config {
+    /// Whether to generate async code
+    pub r#async: bool,
+
     /// Based on the listed type and name of a parameter, determine the rust type
-    pub override_type_name: Option<Box<dyn Fn(&ParamContainer, &str, &str) -> Option<String>>>,
+    pub override_type_name:
+        Option<Box<dyn Fn(&ParamContainer, &str, &str, &Config) -> Option<String>>>,
 
     /// Support renaming param accessor functions
     pub param_accessor_rename: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
@@ -1345,7 +1388,7 @@ pub struct Config {
     pub resource_type_visibility: Option<Box<dyn Fn(&str) -> Option<String>>>,
 
     /// Map a method response type to a different type and a function to map the response
-    pub map_type_for_response: Option<Box<dyn Fn(&str, &str) -> Option<(String, String)>>>,
+    pub map_type_for_response: Option<Box<dyn Fn(&str, &str, &Config) -> Option<(String, String)>>>,
 
     /// Map an accessor function name to a different type
     pub map_type_for_accessor: Option<Box<dyn Fn(&str) -> Option<(String, String)>>>,
@@ -1372,6 +1415,17 @@ pub struct Config {
 
     /// Convert a string to a multipart Part, given a type name and value
     pub convert_to_multipart: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
+}
+
+impl Config {
+    /// Return identifier of the wadl client
+    pub fn client_trait_name(&self) -> &'static str {
+        if self.r#async {
+            "wadl::r#async::Client"
+        } else {
+            "wadl::Client"
+        }
+    }
 }
 
 fn enum_rust_value(option: &str) -> String {
@@ -2107,7 +2161,7 @@ This is another test"#;
         let config = Config::default();
         let lines = generate_method(&input, "bar", &config, &HashMap::new());
         assert_eq!(lines, vec![
-        "    pub fn foo<'a>(&self, client: &'a dyn wadl::Client) -> std::result::Result<(), Error> {\n".to_string(),
+        "    pub fn foo<'a>(&self, client: &'a dyn wadl::Client) -> std::result::Result<(), wadl::Error> {\n".to_string(),
         "        let mut url_ = self.url().clone();\n".to_string(),
         "\n".to_string(),
         "        let mut req = client.request(reqwest::Method::GET, url_);\n".to_string(),
@@ -2115,7 +2169,7 @@ This is another test"#;
         "        let resp = req.send()?;\n".to_string(),
         "        match resp.status() {\n".to_string(),
         "            s if s.is_success() => Ok(()),\n".to_string(),
-        "            _ => Err(wadl::Error::UnhandledStatus(resp))\n".to_string(),
+        "            s => Err(wadl::Error::UnhandledStatus(s))\n".to_string(),
         "        }\n".to_string(),
         "    }\n".to_string(),
         "\n".to_string(),
@@ -2142,7 +2196,7 @@ This is another test"#;
                 "impl Foo {\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
-                "impl Resource for Foo {\n".to_string(),
+                "impl wadl::Resource for Foo {\n".to_string(),
                 "    fn url(&self) -> &reqwest::Url {\n".to_string(),
                 "        &self.0\n".to_string(),
                 "    }\n".to_string(),
