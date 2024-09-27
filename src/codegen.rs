@@ -34,16 +34,6 @@ pub fn camel_case_name(name: &str) -> String {
     result
 }
 
-#[test]
-fn test_camel_case_name() {
-    assert_eq!(camel_case_name("foo-bar"), "FooBar");
-    assert_eq!(camel_case_name("foo-bar-baz"), "FooBarBaz");
-    assert_eq!(camel_case_name("foo-bar-baz-quux"), "FooBarBazQuux");
-    assert_eq!(camel_case_name("_foo-bar"), "_fooBar");
-    assert_eq!(camel_case_name("service-root-json"), "ServiceRootJson");
-    assert_eq!(camel_case_name("get-some-URL"), "GetSomeURL");
-}
-
 /// Convert wadl names (with dashes) to snake-case Rust names
 pub fn snake_case_name(name: &str) -> String {
     let mut name = name.to_string();
@@ -66,17 +56,6 @@ pub fn snake_case_name(name: &str) -> String {
     result
 }
 
-#[test]
-fn test_snake_case_name() {
-    assert_eq!(snake_case_name("F"), "f");
-    assert_eq!(snake_case_name("FooBar"), "foo_bar");
-    assert_eq!(snake_case_name("FooBarBaz"), "foo_bar_baz");
-    assert_eq!(snake_case_name("FooBarBazQuux"), "foo_bar_baz_quux");
-    assert_eq!(snake_case_name("_FooBar"), "_foo_bar");
-    assert_eq!(snake_case_name("ServiceRootJson"), "service_root_json");
-    assert_eq!(snake_case_name("GetSomeURL"), "get_some_url");
-}
-
 fn strip_code_examples(input: String) -> String {
     let mut in_example = false;
     input
@@ -94,26 +73,6 @@ fn strip_code_examples(input: String) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-#[test]
-fn test_strip_code_examples() {
-    let input = r#"This is a test
-```python
-def foo():
-    pass
-```
-
-This is another test
-```python
-def bar():
-    pass
-```
-"#;
-    let expected = r#"This is a test
-
-This is another test"#;
-    assert_eq!(strip_code_examples(input.to_string()), expected);
 }
 
 /// Format the given `Doc` object into a string.
@@ -171,110 +130,6 @@ pub fn generate_doc(input: &Doc, indent: usize, config: &Config) -> Vec<String> 
         .into_iter()
         .map(|line| format!("{:indent$}{}", "", line, indent = indent * 4))
         .collect()
-}
-
-#[test]
-fn test_format_doc_plain() {
-    let doc = Doc {
-        title: None,
-        lang: None,
-        content: "This is a test".to_string(),
-        xmlns: None,
-    };
-
-    assert_eq!(
-        format_doc(&doc, &Config::default()),
-        "This is a test".to_string()
-    );
-}
-
-#[test]
-fn test_format_doc_html() {
-    let doc = Doc {
-        title: None,
-        lang: None,
-        content: "<p>This is a test</p>".to_string(),
-        xmlns: Some("http://www.w3.org/1999/xhtml".parse().unwrap()),
-    };
-
-    assert_eq!(
-        format_doc(&doc, &Config::default()),
-        "This is a test".to_string()
-    );
-}
-
-#[test]
-fn test_format_doc_html_link() {
-    let doc = Doc {
-        title: None,
-        lang: None,
-        content: "<p>This is a <a href=\"https://example.com\">test</a></p>".to_string(),
-        xmlns: Some("http://www.w3.org/1999/xhtml".parse().unwrap()),
-    };
-
-    assert_eq!(
-        format_doc(&doc, &Config::default()),
-        "This is a [test](https://example.com)".to_string()
-    );
-}
-
-#[test]
-fn test_generate_doc_plain() {
-    let doc = Doc {
-        title: Some("Foo".to_string()),
-        lang: None,
-        content: "This is a test".to_string(),
-        xmlns: None,
-    };
-
-    assert_eq!(
-        generate_doc(&doc, 0, &Config::default()),
-        vec![
-            "/// # Foo\n".to_string(),
-            "///\n".to_string(),
-            "/// This is a test\n".to_string(),
-        ]
-    );
-}
-
-#[test]
-fn test_generate_doc_html() {
-    let doc = Doc {
-        title: Some("Foo".to_string()),
-        lang: None,
-        content: "<p>This is a test</p>".to_string(),
-        xmlns: Some("http://www.w3.org/1999/xhtml".parse().unwrap()),
-    };
-
-    assert_eq!(
-        generate_doc(&doc, 0, &Config::default()),
-        vec![
-            "/// # Foo\n".to_string(),
-            "///\n".to_string(),
-            "/// This is a test\n".to_string(),
-        ]
-    );
-}
-
-#[test]
-fn test_generate_doc_multiple_lines() {
-    let doc = Doc {
-        title: Some("Foo".to_string()),
-        lang: None,
-        content: "This is a test\n\nThis is another test".to_string(),
-        xmlns: None,
-    };
-
-    assert_eq!(
-        generate_doc(&doc, 0, &Config::default()),
-        vec![
-            "/// # Foo\n".to_string(),
-            "///\n".to_string(),
-            "/// This is a test\n".to_string(),
-            "///\n".to_string(),
-            "/// This is another test\n".to_string(),
-        ]
-    );
 }
 
 fn generate_resource_type_ref_accessors(
@@ -455,13 +310,6 @@ fn resource_type_rust_type(r: &ResourceTypeRef) -> String {
     }
 }
 
-#[test]
-fn test_resource_type_rust_type() {
-    use std::str::FromStr;
-    let rt = ResourceTypeRef::from_str("https://api.launchpad.net/1.0/#person").unwrap();
-    assert_eq!(resource_type_rust_type(&rt), "Person");
-}
-
 fn simple_type_rust_type(
     container: &ParamContainer,
     type_name: &str,
@@ -532,124 +380,6 @@ fn param_rust_type(
     (param_type, annotations)
 }
 
-#[test]
-fn test_param_rust_type() {
-    use std::str::FromStr;
-    let rt = ResourceTypeRef::from_str("https://api.launchpad.net/1.0/#person").unwrap();
-    let mut param = Param {
-        name: "person".to_string(),
-        r#type: "string".to_string(),
-        required: true,
-        repeating: false,
-        fixed: None,
-        doc: None,
-        options: None,
-        id: None,
-        style: ParamStyle::Plain,
-        path: None,
-        links: vec![crate::ast::Link {
-            resource_type: Some(rt),
-            relation: None,
-            reverse_relation: None,
-            doc: None,
-        }],
-    };
-
-    let method = Method {
-        docs: vec![],
-        id: "getPerson".to_string(),
-        name: "getPerson".to_string(),
-        request: Request {
-            docs: vec![],
-            params: vec![param.clone()],
-            representations: vec![],
-        },
-        responses: vec![Response {
-            status: None,
-            docs: vec![],
-            params: vec![param.clone()],
-            representations: vec![],
-        }],
-    };
-
-    let container = ParamContainer::Request(&method, &method.request);
-
-    let (param_type, _) = param_rust_type(
-        &container,
-        &param,
-        &Config::default(),
-        resource_type_rust_type,
-        &HashMap::new(),
-    );
-    assert_eq!(param_type, "Person");
-
-    param.required = false;
-    let (param_type, _) = param_rust_type(
-        &container,
-        &param,
-        &Config::default(),
-        resource_type_rust_type,
-        &HashMap::new(),
-    );
-    assert_eq!(param_type, "Option<Person>");
-
-    param.repeating = true;
-    param.required = true;
-    let (param_type, _) = param_rust_type(
-        &container,
-        &param,
-        &Config::default(),
-        resource_type_rust_type,
-        &HashMap::new(),
-    );
-    assert_eq!(param_type, "Vec<Person>");
-
-    param.repeating = false;
-    param.r#type = "string".to_string();
-    param.links = vec![];
-    let (param_type, _) = param_rust_type(
-        &container,
-        &param,
-        &Config::default(),
-        resource_type_rust_type,
-        &HashMap::new(),
-    );
-    assert_eq!(param_type, "String");
-
-    param.r#type = "binary".to_string();
-    let (param_type, _) = param_rust_type(
-        &container,
-        &param,
-        &Config::default(),
-        resource_type_rust_type,
-        &HashMap::new(),
-    );
-    assert_eq!(param_type, "Vec<u8>");
-
-    param.r#type = "xsd:date".to_string();
-    let (param_type, _) = param_rust_type(
-        &container,
-        &param,
-        &Config::default(),
-        resource_type_rust_type,
-        &HashMap::new(),
-    );
-    assert_eq!(param_type, "chrono::NaiveDate");
-
-    param.r#type = "string".to_string();
-    param.options = Some(Options::from(vec!["one".to_string(), "two".to_string()]));
-    let (param_type, _) = param_rust_type(
-        &container,
-        &param,
-        &Config::default(),
-        resource_type_rust_type,
-        &maplit::hashmap! {
-            Options::from(vec!["one".to_string(), "two".to_string()]) => "MyOptions".to_string(),
-        },
-    );
-    assert_eq!(param_type, "MyOptions");
-}
-
 fn readonly_rust_type(name: &str) -> String {
     if name.starts_with("Option<") && name.ends_with('>') {
         return format!(
@@ -665,18 +395,6 @@ fn readonly_rust_type(name: &str) -> String {
         x if x.starts_with('*') => x[1..].to_string(),
         x => format!("&{}", x),
     }
-}
-
-#[test]
-fn test_readonly_rust_type() {
-    assert_eq!(readonly_rust_type("String"), "&str");
-    assert_eq!(readonly_rust_type("Vec<String>"), "&[String]");
-    assert_eq!(
-        readonly_rust_type("Option<Vec<String>>"),
-        "Option<&[String]>"
-    );
-    assert_eq!(readonly_rust_type("Option<String>"), "Option<&str>");
-    assert_eq!(readonly_rust_type("usize"), "&usize");
 }
 
 fn representation_rust_type(r: &RepresentationRef) -> String {
@@ -707,33 +425,6 @@ fn escape_rust_reserved(name: &str) -> &str {
         "let" => "r#let",
         name => name,
     }
-}
-
-#[test]
-fn test_escape_rust_reserved() {
-    assert_eq!(escape_rust_reserved("type"), "r#type");
-    assert_eq!(escape_rust_reserved("match"), "r#match");
-    assert_eq!(escape_rust_reserved("move"), "r#move");
-    assert_eq!(escape_rust_reserved("use"), "r#use");
-    assert_eq!(escape_rust_reserved("loop"), "r#loop");
-    assert_eq!(escape_rust_reserved("continue"), "r#continue");
-    assert_eq!(escape_rust_reserved("break"), "r#break");
-    assert_eq!(escape_rust_reserved("fn"), "r#fn");
-    assert_eq!(escape_rust_reserved("struct"), "r#struct");
-    assert_eq!(escape_rust_reserved("enum"), "r#enum");
-    assert_eq!(escape_rust_reserved("trait"), "r#trait");
-    assert_eq!(escape_rust_reserved("impl"), "r#impl");
-    assert_eq!(escape_rust_reserved("pub"), "r#pub");
-    assert_eq!(escape_rust_reserved("as"), "r#as");
-    assert_eq!(escape_rust_reserved("const"), "r#const");
-    assert_eq!(escape_rust_reserved("let"), "r#let");
-    assert_eq!(escape_rust_reserved("foo"), "foo");
-}
-
-#[test]
-fn test_representation_rust_type() {
-    let rt = RepresentationRef::Id("person".to_string());
-    assert_eq!(representation_rust_type(&rt), "Person");
 }
 
 fn generate_representation_struct_json(
@@ -838,84 +529,8 @@ fn generate_representation_struct_json(
     lines
 }
 
-#[test]
-fn test_generate_representation() {
-    let input = RepresentationDef {
-        media_type: Some("application/json".parse().unwrap()),
-        element: None,
-        profile: None,
-        docs: vec![],
-        id: Some("person".to_string()),
-        params: vec![
-            Param {
-                name: "name".to_string(),
-                r#type: "string".to_string(),
-                style: ParamStyle::Plain,
-                required: true,
-                doc: Some(Doc::new("The name of the person".to_string())),
-                path: None,
-                id: None,
-                repeating: false,
-                fixed: None,
-                links: vec![],
-                options: None,
-            },
-            Param {
-                name: "age".to_string(),
-                r#type: "xs:int".to_string(),
-                required: true,
-                doc: Some(Doc::new("The age of the person".to_string())),
-                style: ParamStyle::Query,
-                path: None,
-                id: None,
-                repeating: false,
-                fixed: None,
-                links: vec![],
-                options: None,
-            },
-        ],
-    };
-
-    let config = Config::default();
-
-    let lines = generate_representation_struct_json(&input, &config, &HashMap::new());
-
-    assert_eq!(
-        lines,
-        vec![
-            "/// Representation of the `person` resource\n".to_string(),
-            "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n"
-                .to_string(),
-            "pub struct Person {\n".to_string(),
-            "    // was: string\n".to_string(),
-            "    /// The name of the person\n".to_string(),
-            "    pub name: String,\n".to_string(),
-            "\n".to_string(),
-            "    // was: xs:int\n".to_string(),
-            "    /// The age of the person\n".to_string(),
-            "    pub age: i32,\n".to_string(),
-            "\n".to_string(),
-            "}\n".to_string(),
-            "\n".to_string(),
-        ]
-    );
-}
-
 fn supported_representation_def(_d: &RepresentationDef) -> bool {
     false
-}
-
-#[test]
-fn test_supported_representation_def() {
-    let mut d = RepresentationDef::default();
-    d.media_type = Some(crate::WADL_MIME_TYPE.parse().unwrap());
-    assert!(!supported_representation_def(&d));
-
-    d.media_type = Some(XHTML_MIME_TYPE.parse().unwrap());
-    assert!(!supported_representation_def(&d));
-
-    d.media_type = Some("application/json".parse().unwrap());
-    assert!(!supported_representation_def(&d));
 }
 
 /// Generate the Rust type for a representation
@@ -996,141 +611,6 @@ fn rust_type_for_response(
     }
 }
 
-#[test]
-fn test_rust_type_for_response() {
-    let mut input = Response {
-        params: vec![Param {
-            id: Some("foo".to_string()),
-            name: "foo".to_string(),
-            r#type: "string".to_string(),
-            style: ParamStyle::Header,
-            doc: None,
-            required: true,
-            repeating: false,
-            fixed: None,
-            path: None,
-            links: Vec::new(),
-            options: None,
-        }],
-        ..Default::default()
-    };
-
-    let method = Method {
-        name: "GET".to_string(),
-        id: "get".to_string(),
-        docs: Vec::new(),
-        request: Request::default(),
-        responses: vec![input.clone()],
-    };
-
-    assert_eq!(
-        rust_type_for_response(&method, &input, "foo", &HashMap::new()),
-        "String".to_string()
-    );
-
-    input.params = vec![
-        Param {
-            id: Some("foo".to_string()),
-            name: "foo".to_string(),
-            r#type: "string".to_string(),
-            style: ParamStyle::Header,
-            doc: None,
-            required: true,
-            repeating: false,
-            fixed: None,
-            path: None,
-            links: Vec::new(),
-            options: None,
-        },
-        Param {
-            id: Some("bar".to_string()),
-            name: "bar".to_string(),
-            r#type: "string".to_string(),
-            style: ParamStyle::Header,
-            doc: None,
-            required: true,
-            repeating: false,
-            fixed: None,
-            path: None,
-            links: Vec::new(),
-            options: None,
-        },
-    ];
-    assert_eq!(
-        rust_type_for_response(&method, &input, "foo", &HashMap::new()),
-        "(String, String)".to_string()
-    );
-
-    input.params = vec![Param {
-        id: Some("foo".to_string()),
-        name: "foo".to_string(),
-        r#type: "string".to_string(),
-        style: ParamStyle::Header,
-        doc: None,
-        required: true,
-        repeating: false,
-        fixed: None,
-        path: None,
-        links: vec![Link {
-            relation: None,
-            reverse_relation: None,
-            resource_type: Some("http://example.com/#foo".parse().unwrap()),
-            doc: None,
-        }],
-        options: None,
-    }];
-    assert_eq!(
-        rust_type_for_response(&method, &input, "foo", &HashMap::new()),
-        "Foo".to_string()
-    );
-
-    input.params = vec![Param {
-        id: Some("foo".to_string()),
-        name: "foo".to_string(),
-        r#type: "string".to_string(),
-        style: ParamStyle::Header,
-        doc: None,
-        required: true,
-        repeating: false,
-        fixed: None,
-        path: None,
-        links: vec![Link {
-            relation: None,
-            reverse_relation: None,
-            resource_type: Some("http://example.com/#foo".parse().unwrap()),
-            doc: None,
-        }],
-        options: None,
-    }];
-    assert_eq!(
-        rust_type_for_response(&method, &input, "foo", &HashMap::new()),
-        "Foo".to_string()
-    );
-
-    input.params = vec![Param {
-        id: None,
-        name: "foo".to_string(),
-        r#type: "string".to_string(),
-        style: ParamStyle::Header,
-        doc: None,
-        required: true,
-        repeating: false,
-        fixed: None,
-        options: None,
-        path: None,
-        links: vec![Link {
-            relation: None,
-            reverse_relation: None,
-            resource_type: None,
-            doc: None,
-        }],
-    }];
-    assert_eq!(
-        rust_type_for_response(&method, &input, "foo", &HashMap::new()),
-        "url::Url".to_string()
-    );
-}
-
 fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config) -> Vec<String> {
     let mut lines = Vec::new();
     if let Some(doc) = doc.as_ref() {
@@ -1159,34 +639,6 @@ fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config) ->
     lines
 }
 
-#[test]
-fn test_format_arg_doc() {
-    let config = Config::default();
-    assert_eq!(
-        format_arg_doc("foo", None, &config),
-        vec!["    /// * `foo`\n".to_string()]
-    );
-    assert_eq!(
-        format_arg_doc("foo", Some(&Doc::new("bar".to_string())), &config),
-        vec!["    /// * `foo`: bar\n".to_string()]
-    );
-    assert_eq!(
-        format_arg_doc("foo", Some(&Doc::new("bar\nbaz".to_string())), &config),
-        vec![
-            "    /// * `foo`: bar\n".to_string(),
-            "    ///     baz\n".to_string()
-        ]
-    );
-    assert_eq!(
-        format_arg_doc("foo", Some(&Doc::new("bar\n\nbaz".to_string())), &config),
-        vec![
-            "    /// * `foo`: bar\n".to_string(),
-            "    ///\n".to_string(),
-            "    ///     baz\n".to_string()
-        ]
-    );
-}
-
 fn apply_map_fn(map_fn: Option<&str>, ret: &str, required: bool) -> String {
     if let Some(map_fn) = map_fn {
         if required {
@@ -1201,24 +653,6 @@ fn apply_map_fn(map_fn: Option<&str>, ret: &str, required: bool) -> String {
     } else {
         ret.to_string()
     }
-}
-
-#[test]
-fn test_apply_map_fn() {
-    assert_eq!(apply_map_fn(None, "x", true), "x".to_string());
-    assert_eq!(apply_map_fn(Some("Some"), "x", true), "Some(x)".to_string());
-    assert_eq!(
-        apply_map_fn(Some("Some"), "x", false),
-        "x.map(Some)".to_string()
-    );
-    assert_eq!(
-        apply_map_fn(Some("|y|y+1"), "x", true),
-        "(|y|y+1)(x)".to_string()
-    );
-    assert_eq!(
-        apply_map_fn(Some("|y|y+1"), "x", false),
-        "x.map(|y|y+1)".to_string()
-    );
 }
 
 fn serialize_representation_def(
@@ -1827,37 +1261,6 @@ fn generate_method_representation(
     lines
 }
 
-#[test]
-fn test_generate_method() {
-    let input = Method {
-        id: "foo".to_string(),
-        name: "GET".to_string(),
-        docs: vec![],
-        request: Request {
-            docs: vec![],
-            params: vec![],
-            representations: vec![],
-        },
-        responses: vec![],
-    };
-    let config = Config::default();
-    let lines = generate_method(&input, "bar", &config, &HashMap::new());
-    assert_eq!(lines, vec![
-        "    pub fn foo<'a>(&self, client: &'a dyn wadl::Client) -> std::result::Result<(), Error> {\n".to_string(),
-        "        let mut url_ = self.url().clone();\n".to_string(),
-        "\n".to_string(),
-        "        let mut req = client.request(reqwest::Method::GET, url_);\n".to_string(),
-        "\n".to_string(),
-        "        let resp = req.send()?;\n".to_string(),
-        "        match resp.status() {\n".to_string(),
-        "            s if s.is_success() => Ok(()),\n".to_string(),
-        "            _ => Err(wadl::Error::UnhandledStatus(resp))\n".to_string(),
-        "        }\n".to_string(),
-        "    }\n".to_string(),
-        "\n".to_string(),
-    ]);
-}
-
 fn generate_resource_type(
     input: &ResourceType,
     config: &Config,
@@ -1910,36 +1313,6 @@ fn generate_resource_type(
     lines.push("}\n".to_string());
     lines.push("\n".to_string());
     lines
-}
-
-#[test]
-fn test_generate_resource_type() {
-    let input = ResourceType {
-        id: "foo".to_string(),
-        docs: vec![],
-        methods: vec![],
-        query_type: mime::APPLICATION_JSON,
-        params: vec![],
-        subresources: vec![],
-    };
-    let config = Config::default();
-    let lines = generate_resource_type(&input, &config, &HashMap::new());
-    assert_eq!(
-        lines,
-        vec![
-            "pub struct Foo (reqwest::Url);\n".to_string(),
-            "\n".to_string(),
-            "impl Foo {\n".to_string(),
-            "}\n".to_string(),
-            "\n".to_string(),
-            "impl Resource for Foo {\n".to_string(),
-            "    fn url(&self) -> &reqwest::Url {\n".to_string(),
-            "        &self.0\n".to_string(),
-            "    }\n".to_string(),
-            "}\n".to_string(),
-            "\n".to_string(),
-        ]
-    );
 }
 
 #[derive(Default)]
@@ -2015,19 +1388,6 @@ fn enum_rust_value(option: &str) -> String {
         format!("_{}", name)
     } else {
         name
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_enum_rust_value() {
-        assert_eq!(enum_rust_value("foo"), "Foo");
-        assert_eq!(enum_rust_value("foo bar"), "FooBar");
-        assert_eq!(enum_rust_value("foo bar blah"), "FooBarBlah");
-        assert_eq!(enum_rust_value("foo-bar"), "FooBar");
     }
 }
 
@@ -2138,16 +1498,657 @@ fn indent(indent: usize, lines: impl Iterator<Item = String>) -> impl Iterator<I
     lines.map(move |line| format!("{}{}", " ".repeat(indent * 4), line))
 }
 
-#[test]
-fn test_generate_empty() {
-    let input = crate::ast::Application {
-        docs: vec![],
-        representations: vec![],
-        resource_types: vec![],
-        resources: vec![],
-        grammars: vec![],
-    };
-    let config = Config::default();
-    let lines = generate(&input, &config);
-    assert_eq!(lines, "".to_string());
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_camel_case_name() {
+        assert_eq!(camel_case_name("foo-bar"), "FooBar");
+        assert_eq!(camel_case_name("foo-bar-baz"), "FooBarBaz");
+        assert_eq!(camel_case_name("foo-bar-baz-quux"), "FooBarBazQuux");
+        assert_eq!(camel_case_name("_foo-bar"), "_fooBar");
+        assert_eq!(camel_case_name("service-root-json"), "ServiceRootJson");
+        assert_eq!(camel_case_name("get-some-URL"), "GetSomeURL");
+    }
+
+    #[test]
+    fn test_generate_empty() {
+        let input = crate::ast::Application {
+            docs: vec![],
+            representations: vec![],
+            resource_types: vec![],
+            resources: vec![],
+            grammars: vec![],
+        };
+        let config = Config::default();
+        let lines = generate(&input, &config);
+        assert_eq!(lines, "".to_string());
+    }
+
+    #[test]
+    fn test_enum_rust_value() {
+        assert_eq!(enum_rust_value("foo"), "Foo");
+        assert_eq!(enum_rust_value("foo bar"), "FooBar");
+        assert_eq!(enum_rust_value("foo bar blah"), "FooBarBlah");
+        assert_eq!(enum_rust_value("foo-bar"), "FooBar");
+    }
+
+    #[test]
+    fn test_snake_case_name() {
+        assert_eq!(snake_case_name("F"), "f");
+        assert_eq!(snake_case_name("FooBar"), "foo_bar");
+        assert_eq!(snake_case_name("FooBarBaz"), "foo_bar_baz");
+        assert_eq!(snake_case_name("FooBarBazQuux"), "foo_bar_baz_quux");
+        assert_eq!(snake_case_name("_FooBar"), "_foo_bar");
+        assert_eq!(snake_case_name("ServiceRootJson"), "service_root_json");
+        assert_eq!(snake_case_name("GetSomeURL"), "get_some_url");
+    }
+
+    #[test]
+    fn test_strip_code_examples() {
+        let input = r#"This is a test
+```python
+def foo():
+    pass
+```
+
+This is another test
+```python
+def bar():
+    pass
+```
+"#;
+        let expected = r#"This is a test
+
+This is another test"#;
+        assert_eq!(strip_code_examples(input.to_string()), expected);
+    }
+
+    #[test]
+    fn test_format_doc_plain() {
+        let doc = Doc {
+            title: None,
+            lang: None,
+            content: "This is a test".to_string(),
+            xmlns: None,
+        };
+
+        assert_eq!(
+            format_doc(&doc, &Config::default()),
+            "This is a test".to_string()
+        );
+    }
+
+    #[test]
+    fn test_format_doc_html() {
+        let doc = Doc {
+            title: None,
+            lang: None,
+            content: "<p>This is a test</p>".to_string(),
+            xmlns: Some("http://www.w3.org/1999/xhtml".parse().unwrap()),
+        };
+
+        assert_eq!(
+            format_doc(&doc, &Config::default()),
+            "This is a test".to_string()
+        );
+    }
+
+    #[test]
+    fn test_format_doc_html_link() {
+        let doc = Doc {
+            title: None,
+            lang: None,
+            content: "<p>This is a <a href=\"https://example.com\">test</a></p>".to_string(),
+            xmlns: Some("http://www.w3.org/1999/xhtml".parse().unwrap()),
+        };
+
+        assert_eq!(
+            format_doc(&doc, &Config::default()),
+            "This is a [test](https://example.com)".to_string()
+        );
+    }
+
+    #[test]
+    fn test_generate_doc_plain() {
+        let doc = Doc {
+            title: Some("Foo".to_string()),
+            lang: None,
+            content: "This is a test".to_string(),
+            xmlns: None,
+        };
+
+        assert_eq!(
+            generate_doc(&doc, 0, &Config::default()),
+            vec![
+                "/// # Foo\n".to_string(),
+                "///\n".to_string(),
+                "/// This is a test\n".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_generate_doc_html() {
+        let doc = Doc {
+            title: Some("Foo".to_string()),
+            lang: None,
+            content: "<p>This is a test</p>".to_string(),
+            xmlns: Some("http://www.w3.org/1999/xhtml".parse().unwrap()),
+        };
+
+        assert_eq!(
+            generate_doc(&doc, 0, &Config::default()),
+            vec![
+                "/// # Foo\n".to_string(),
+                "///\n".to_string(),
+                "/// This is a test\n".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_generate_doc_multiple_lines() {
+        let doc = Doc {
+            title: Some("Foo".to_string()),
+            lang: None,
+            content: "This is a test\n\nThis is another test".to_string(),
+            xmlns: None,
+        };
+
+        assert_eq!(
+            generate_doc(&doc, 0, &Config::default()),
+            vec![
+                "/// # Foo\n".to_string(),
+                "///\n".to_string(),
+                "/// This is a test\n".to_string(),
+                "///\n".to_string(),
+                "/// This is another test\n".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_resource_type_rust_type() {
+        use std::str::FromStr;
+        let rt = ResourceTypeRef::from_str("https://api.launchpad.net/1.0/#person").unwrap();
+        assert_eq!(resource_type_rust_type(&rt), "Person");
+    }
+
+    #[test]
+    fn test_param_rust_type() {
+        use std::str::FromStr;
+        let rt = ResourceTypeRef::from_str("https://api.launchpad.net/1.0/#person").unwrap();
+        let mut param = Param {
+            name: "person".to_string(),
+            r#type: "string".to_string(),
+            required: true,
+            repeating: false,
+            fixed: None,
+            doc: None,
+            options: None,
+            id: None,
+            style: ParamStyle::Plain,
+            path: None,
+            links: vec![crate::ast::Link {
+                resource_type: Some(rt),
+                relation: None,
+                reverse_relation: None,
+                doc: None,
+            }],
+        };
+
+        let method = Method {
+            docs: vec![],
+            id: "getPerson".to_string(),
+            name: "getPerson".to_string(),
+            request: Request {
+                docs: vec![],
+                params: vec![param.clone()],
+                representations: vec![],
+            },
+            responses: vec![Response {
+                status: None,
+                docs: vec![],
+                params: vec![param.clone()],
+                representations: vec![],
+            }],
+        };
+
+        let container = ParamContainer::Request(&method, &method.request);
+
+        let (param_type, _) = param_rust_type(
+            &container,
+            &param,
+            &Config::default(),
+            resource_type_rust_type,
+            &HashMap::new(),
+        );
+        assert_eq!(param_type, "Person");
+
+        param.required = false;
+        let (param_type, _) = param_rust_type(
+            &container,
+            &param,
+            &Config::default(),
+            resource_type_rust_type,
+            &HashMap::new(),
+        );
+        assert_eq!(param_type, "Option<Person>");
+
+        param.repeating = true;
+        param.required = true;
+        let (param_type, _) = param_rust_type(
+            &container,
+            &param,
+            &Config::default(),
+            resource_type_rust_type,
+            &HashMap::new(),
+        );
+        assert_eq!(param_type, "Vec<Person>");
+
+        param.repeating = false;
+        param.r#type = "string".to_string();
+        param.links = vec![];
+        let (param_type, _) = param_rust_type(
+            &container,
+            &param,
+            &Config::default(),
+            resource_type_rust_type,
+            &HashMap::new(),
+        );
+        assert_eq!(param_type, "String");
+
+        param.r#type = "binary".to_string();
+        let (param_type, _) = param_rust_type(
+            &container,
+            &param,
+            &Config::default(),
+            resource_type_rust_type,
+            &HashMap::new(),
+        );
+        assert_eq!(param_type, "Vec<u8>");
+
+        param.r#type = "xsd:date".to_string();
+        let (param_type, _) = param_rust_type(
+            &container,
+            &param,
+            &Config::default(),
+            resource_type_rust_type,
+            &HashMap::new(),
+        );
+        assert_eq!(param_type, "chrono::NaiveDate");
+
+        param.r#type = "string".to_string();
+        param.options = Some(Options::from(vec!["one".to_string(), "two".to_string()]));
+        let (param_type, _) = param_rust_type(
+            &container,
+            &param,
+            &Config::default(),
+            resource_type_rust_type,
+            &maplit::hashmap! {
+                Options::from(vec!["one".to_string(), "two".to_string()]) => "MyOptions".to_string(),
+            },
+        );
+        assert_eq!(param_type, "MyOptions");
+    }
+
+    #[test]
+    fn test_readonly_rust_type() {
+        assert_eq!(readonly_rust_type("String"), "&str");
+        assert_eq!(readonly_rust_type("Vec<String>"), "&[String]");
+        assert_eq!(
+            readonly_rust_type("Option<Vec<String>>"),
+            "Option<&[String]>"
+        );
+        assert_eq!(readonly_rust_type("Option<String>"), "Option<&str>");
+        assert_eq!(readonly_rust_type("usize"), "&usize");
+    }
+
+    #[test]
+    fn test_escape_rust_reserved() {
+        assert_eq!(escape_rust_reserved("type"), "r#type");
+        assert_eq!(escape_rust_reserved("match"), "r#match");
+        assert_eq!(escape_rust_reserved("move"), "r#move");
+        assert_eq!(escape_rust_reserved("use"), "r#use");
+        assert_eq!(escape_rust_reserved("loop"), "r#loop");
+        assert_eq!(escape_rust_reserved("continue"), "r#continue");
+        assert_eq!(escape_rust_reserved("break"), "r#break");
+        assert_eq!(escape_rust_reserved("fn"), "r#fn");
+        assert_eq!(escape_rust_reserved("struct"), "r#struct");
+        assert_eq!(escape_rust_reserved("enum"), "r#enum");
+        assert_eq!(escape_rust_reserved("trait"), "r#trait");
+        assert_eq!(escape_rust_reserved("impl"), "r#impl");
+        assert_eq!(escape_rust_reserved("pub"), "r#pub");
+        assert_eq!(escape_rust_reserved("as"), "r#as");
+        assert_eq!(escape_rust_reserved("const"), "r#const");
+        assert_eq!(escape_rust_reserved("let"), "r#let");
+        assert_eq!(escape_rust_reserved("foo"), "foo");
+    }
+
+    #[test]
+    fn test_representation_rust_type() {
+        let rt = RepresentationRef::Id("person".to_string());
+        assert_eq!(representation_rust_type(&rt), "Person");
+    }
+
+    #[test]
+    fn test_generate_representation() {
+        let input = RepresentationDef {
+            media_type: Some("application/json".parse().unwrap()),
+            element: None,
+            profile: None,
+            docs: vec![],
+            id: Some("person".to_string()),
+            params: vec![
+                Param {
+                    name: "name".to_string(),
+                    r#type: "string".to_string(),
+                    style: ParamStyle::Plain,
+                    required: true,
+                    doc: Some(Doc::new("The name of the person".to_string())),
+                    path: None,
+                    id: None,
+                    repeating: false,
+                    fixed: None,
+                    links: vec![],
+                    options: None,
+                },
+                Param {
+                    name: "age".to_string(),
+                    r#type: "xs:int".to_string(),
+                    required: true,
+                    doc: Some(Doc::new("The age of the person".to_string())),
+                    style: ParamStyle::Query,
+                    path: None,
+                    id: None,
+                    repeating: false,
+                    fixed: None,
+                    links: vec![],
+                    options: None,
+                },
+            ],
+        };
+
+        let config = Config::default();
+
+        let lines = generate_representation_struct_json(&input, &config, &HashMap::new());
+
+        assert_eq!(
+            lines,
+            vec![
+                "/// Representation of the `person` resource\n".to_string(),
+                "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n"
+                    .to_string(),
+                "pub struct Person {\n".to_string(),
+                "    // was: string\n".to_string(),
+                "    /// The name of the person\n".to_string(),
+                "    pub name: String,\n".to_string(),
+                "\n".to_string(),
+                "    // was: xs:int\n".to_string(),
+                "    /// The age of the person\n".to_string(),
+                "    pub age: i32,\n".to_string(),
+                "\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_supported_representation_def() {
+        let mut d = RepresentationDef {
+            media_type: Some(crate::WADL_MIME_TYPE.parse().unwrap()),
+            ..Default::default()
+        };
+        assert!(!supported_representation_def(&d));
+
+        d.media_type = Some(XHTML_MIME_TYPE.parse().unwrap());
+        assert!(!supported_representation_def(&d));
+
+        d.media_type = Some("application/json".parse().unwrap());
+        assert!(!supported_representation_def(&d));
+    }
+
+    #[test]
+    fn test_rust_type_for_response() {
+        let mut input = Response {
+            params: vec![Param {
+                id: Some("foo".to_string()),
+                name: "foo".to_string(),
+                r#type: "string".to_string(),
+                style: ParamStyle::Header,
+                doc: None,
+                required: true,
+                repeating: false,
+                fixed: None,
+                path: None,
+                links: Vec::new(),
+                options: None,
+            }],
+            ..Default::default()
+        };
+
+        let method = Method {
+            name: "GET".to_string(),
+            id: "get".to_string(),
+            docs: Vec::new(),
+            request: Request::default(),
+            responses: vec![input.clone()],
+        };
+
+        assert_eq!(
+            rust_type_for_response(&method, &input, "foo", &HashMap::new()),
+            "String".to_string()
+        );
+
+        input.params = vec![
+            Param {
+                id: Some("foo".to_string()),
+                name: "foo".to_string(),
+                r#type: "string".to_string(),
+                style: ParamStyle::Header,
+                doc: None,
+                required: true,
+                repeating: false,
+                fixed: None,
+                path: None,
+                links: Vec::new(),
+                options: None,
+            },
+            Param {
+                id: Some("bar".to_string()),
+                name: "bar".to_string(),
+                r#type: "string".to_string(),
+                style: ParamStyle::Header,
+                doc: None,
+                required: true,
+                repeating: false,
+                fixed: None,
+                path: None,
+                links: Vec::new(),
+                options: None,
+            },
+        ];
+        assert_eq!(
+            rust_type_for_response(&method, &input, "foo", &HashMap::new()),
+            "(String, String)".to_string()
+        );
+
+        input.params = vec![Param {
+            id: Some("foo".to_string()),
+            name: "foo".to_string(),
+            r#type: "string".to_string(),
+            style: ParamStyle::Header,
+            doc: None,
+            required: true,
+            repeating: false,
+            fixed: None,
+            path: None,
+            links: vec![Link {
+                relation: None,
+                reverse_relation: None,
+                resource_type: Some("http://example.com/#foo".parse().unwrap()),
+                doc: None,
+            }],
+            options: None,
+        }];
+        assert_eq!(
+            rust_type_for_response(&method, &input, "foo", &HashMap::new()),
+            "Foo".to_string()
+        );
+
+        input.params = vec![Param {
+            id: Some("foo".to_string()),
+            name: "foo".to_string(),
+            r#type: "string".to_string(),
+            style: ParamStyle::Header,
+            doc: None,
+            required: true,
+            repeating: false,
+            fixed: None,
+            path: None,
+            links: vec![Link {
+                relation: None,
+                reverse_relation: None,
+                resource_type: Some("http://example.com/#foo".parse().unwrap()),
+                doc: None,
+            }],
+            options: None,
+        }];
+        assert_eq!(
+            rust_type_for_response(&method, &input, "foo", &HashMap::new()),
+            "Foo".to_string()
+        );
+
+        input.params = vec![Param {
+            id: None,
+            name: "foo".to_string(),
+            r#type: "string".to_string(),
+            style: ParamStyle::Header,
+            doc: None,
+            required: true,
+            repeating: false,
+            fixed: None,
+            options: None,
+            path: None,
+            links: vec![Link {
+                relation: None,
+                reverse_relation: None,
+                resource_type: None,
+                doc: None,
+            }],
+        }];
+        assert_eq!(
+            rust_type_for_response(&method, &input, "foo", &HashMap::new()),
+            "url::Url".to_string()
+        );
+    }
+
+    #[test]
+    fn test_format_arg_doc() {
+        let config = Config::default();
+        assert_eq!(
+            format_arg_doc("foo", None, &config),
+            vec!["    /// * `foo`\n".to_string()]
+        );
+        assert_eq!(
+            format_arg_doc("foo", Some(&Doc::new("bar".to_string())), &config),
+            vec!["    /// * `foo`: bar\n".to_string()]
+        );
+        assert_eq!(
+            format_arg_doc("foo", Some(&Doc::new("bar\nbaz".to_string())), &config),
+            vec![
+                "    /// * `foo`: bar\n".to_string(),
+                "    ///     baz\n".to_string()
+            ]
+        );
+        assert_eq!(
+            format_arg_doc("foo", Some(&Doc::new("bar\n\nbaz".to_string())), &config),
+            vec![
+                "    /// * `foo`: bar\n".to_string(),
+                "    ///\n".to_string(),
+                "    ///     baz\n".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_apply_map_fn() {
+        assert_eq!(apply_map_fn(None, "x", true), "x".to_string());
+        assert_eq!(apply_map_fn(Some("Some"), "x", true), "Some(x)".to_string());
+        assert_eq!(
+            apply_map_fn(Some("Some"), "x", false),
+            "x.map(Some)".to_string()
+        );
+        assert_eq!(
+            apply_map_fn(Some("|y|y+1"), "x", true),
+            "(|y|y+1)(x)".to_string()
+        );
+        assert_eq!(
+            apply_map_fn(Some("|y|y+1"), "x", false),
+            "x.map(|y|y+1)".to_string()
+        );
+    }
+
+    #[test]
+    fn test_generate_method() {
+        let input = Method {
+            id: "foo".to_string(),
+            name: "GET".to_string(),
+            docs: vec![],
+            request: Request {
+                docs: vec![],
+                params: vec![],
+                representations: vec![],
+            },
+            responses: vec![],
+        };
+        let config = Config::default();
+        let lines = generate_method(&input, "bar", &config, &HashMap::new());
+        assert_eq!(lines, vec![
+        "    pub fn foo<'a>(&self, client: &'a dyn wadl::Client) -> std::result::Result<(), Error> {\n".to_string(),
+        "        let mut url_ = self.url().clone();\n".to_string(),
+        "\n".to_string(),
+        "        let mut req = client.request(reqwest::Method::GET, url_);\n".to_string(),
+        "\n".to_string(),
+        "        let resp = req.send()?;\n".to_string(),
+        "        match resp.status() {\n".to_string(),
+        "            s if s.is_success() => Ok(()),\n".to_string(),
+        "            _ => Err(wadl::Error::UnhandledStatus(resp))\n".to_string(),
+        "        }\n".to_string(),
+        "    }\n".to_string(),
+        "\n".to_string(),
+    ]);
+    }
+
+    #[test]
+    fn test_generate_resource_type() {
+        let input = ResourceType {
+            id: "foo".to_string(),
+            docs: vec![],
+            methods: vec![],
+            query_type: mime::APPLICATION_JSON,
+            params: vec![],
+            subresources: vec![],
+        };
+        let config = Config::default();
+        let lines = generate_resource_type(&input, &config, &HashMap::new());
+        assert_eq!(
+            lines,
+            vec![
+                "pub struct Foo (reqwest::Url);\n".to_string(),
+                "\n".to_string(),
+                "impl Foo {\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+                "impl Resource for Foo {\n".to_string(),
+                "    fn url(&self) -> &reqwest::Url {\n".to_string(),
+                "        &self.0\n".to_string(),
+                "    }\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+            ]
+        );
+    }
 }
