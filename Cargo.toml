@@ -18,7 +18,7 @@ log = "0.4.22"
 mime = "0.3.17"
 proc-macro2 = { version = "1", optional = true }
 quote = { version = "1", optional = true }
-reqwest = { version = ">=0.11", features = ["blocking", "json", "multipart"] }
+reqwest = { version = ">=0.11", features = ["json", "multipart"] }
 serde_json = "1.0.128"
 syn = { version = "2", optional = true }
 url = "2"
@@ -27,10 +27,11 @@ iri-string = { version = ">=0.7", features = ["std"] }
 async-trait = { version = "0.1", optional = true }
 
 [features]
-default = ["cli"]
+default = ["cli", "blocking"]
 codegen = ["dep:proc-macro2", "dep:quote", "dep:syn", "dep:html2md"]
 cli = ["dep:clap", "dep:env_logger", "codegen"]
 async = ["dep:async-trait"]
+blocking = ["reqwest/blocking"]
 
 [[bin]]
 name = "wadlc"
