@@ -21,18 +21,6 @@ pub trait Resource {
     fn url(&self) -> &Url;
 }
 
-/// A client for a WADL API
-pub trait Client {
-    /// Create a new request builder
-    fn request(&self, method: reqwest::Method, url: url::Url) -> reqwest::blocking::RequestBuilder;
-}
-
-impl Client for reqwest::blocking::Client {
-    fn request(&self, method: reqwest::Method, url: url::Url) -> reqwest::blocking::RequestBuilder {
-        self.request(method, url)
-    }
-}
-
 #[cfg(feature = "async")]
 /// Asynchronous features
 pub mod r#async {
@@ -66,6 +54,52 @@ pub mod r#async {
         let text = res.text().await?;
 
         let application = super::parse_string(&text)?;
+
+        let resource = application.get_resource_by_href(href).unwrap();
+
+        Ok(resource.clone())
+    }
+}
+
+#[cfg(feature = "blocking")]
+/// Blocking features
+pub mod blocking {
+    use super::*;
+
+    /// A client for a WADL API
+    pub trait Client {
+        /// Create a new request builder
+        fn request(
+            &self,
+            method: reqwest::Method,
+            url: url::Url,
+        ) -> reqwest::blocking::RequestBuilder;
+    }
+
+    impl Client for reqwest::blocking::Client {
+        fn request(
+            &self,
+            method: reqwest::Method,
+            url: url::Url,
+        ) -> reqwest::blocking::RequestBuilder {
+            self.request(method, url)
+        }
+    }
+
+    /// Get the WADL AST from a URL.
+    pub fn get_wadl_resource_by_href(
+        client: &dyn Client,
+        href: &url::Url,
+    ) -> Result<crate::ast::Resource, Error> {
+        let mut req = client.request(reqwest::Method::GET, href.clone());
+
+        req = req.header(reqwest::header::ACCEPT, WADL_MIME_TYPE);
+
+        let res = req.send()?;
+
+        let text = res.text()?;
+
+        let application = parse_string(&text)?;
 
         let resource = application.get_resource_by_href(href).unwrap();
 
@@ -147,24 +181,4 @@ impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
         Error::Wadl(err)
     }
-}
-
-/// Get the WADL AST from a URL.
-pub fn get_wadl_resource_by_href(
-    client: &dyn Client,
-    href: &url::Url,
-) -> Result<crate::ast::Resource, Error> {
-    let mut req = client.request(reqwest::Method::GET, href.clone());
-
-    req = req.header(reqwest::header::ACCEPT, WADL_MIME_TYPE);
-
-    let res = req.send()?;
-
-    let text = res.text()?;
-
-    let application = parse_string(&text)?;
-
-    let resource = application.get_resource_by_href(href).unwrap();
-
-    Ok(resource.clone())
 }

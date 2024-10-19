@@ -14,6 +14,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - run: cargo install cargo-deny
     - name: Install cargo-all-features
       run: cargo install cargo-all-features
     - name: Build
@@ -26,3 +27,5 @@ jobs:
         RUSTFLAGS: -Dwarnings
     - name: Check formatting
       run: cargo fmt -- --check
+    - name: Run cargo deny
+      run: cargo deny check

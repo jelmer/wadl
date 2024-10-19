@@ -1423,7 +1423,7 @@ impl Config {
         if self.r#async {
             "wadl::r#async::Client"
         } else {
-            "wadl::Client"
+            "wadl::blocking::Client"
         }
     }
 }
@@ -2161,7 +2161,7 @@ This is another test"#;
         let config = Config::default();
         let lines = generate_method(&input, "bar", &config, &HashMap::new());
         assert_eq!(lines, vec![
-        "    pub fn foo<'a>(&self, client: &'a dyn wadl::Client) -> std::result::Result<(), wadl::Error> {\n".to_string(),
+        "    pub fn foo<'a>(&self, client: &'a dyn wadl::blocking::Client) -> std::result::Result<(), wadl::Error> {\n".to_string(),
         "        let mut url_ = self.url().clone();\n".to_string(),
         "\n".to_string(),
         "        let mut req = client.request(reqwest::Method::GET, url_);\n".to_string(),
