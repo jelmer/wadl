@@ -299,7 +299,7 @@
         type="xs:string" style="query"
         name="revision"
         xmlns:xs="http://www.w3.org/2001/XMLSchema"><ns2:doc>the id of the filerevision to retrieve.</ns2:doc></ns2:param></ns2:request><ns2:response
-        status="200"><ns2:doc>infomation about the specified filerevision.</ns2:doc><ns2:representation
+        status="200"><ns2:doc>information about the specified filerevision.</ns2:doc><ns2:representation
         mediaType="application/xml"><ns2:doc><ns3:p
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Example</ns3:h6><ns3:pre><ns3:code>&lt;?xml version="1.0" encoding="UTF-8" standalone="yes"?&gt;
     &lt;fileRevision totalLines="451" fileRevisionState="CHANGED" rev="3" path="trunk/readme.txt" linesRemoved="0" linesAdded="409" date="2017-11-27T14:12:31.329Z" csid="MAIN:ray:2010451" contentLink="" author="ray"&gt;
@@ -307,7 +307,7 @@
     &lt;comment&gt;second revision&lt;/comment&gt;
     &lt;/fileRevision&gt;
 </ns3:code></ns3:pre></ns3:p></ns2:doc><ns2:doc>Information about the specified filerevision.</ns2:doc></ns2:representation></ns2:response><ns2:response
-        status="200"><ns2:doc>infomation about the specified filerevision.</ns2:doc><ns2:representation
+        status="200"><ns2:doc>information about the specified filerevision.</ns2:doc><ns2:representation
         mediaType="application/json"><ns2:doc><ns3:p
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Example</ns3:h6><ns3:pre><ns3:code>{
     "path" : "trunk/readme.txt",

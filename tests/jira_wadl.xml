@@ -85,7 +85,7 @@
         name="moveIssuesTo" style="query"
         type="xs:string"
         xmlns:xs="http://www.w3.org/2001/XMLSchema"><ns2:doc><![CDATA[The new component applied to issues whose 'id' component will be deleted.
-                     If this value is null, then the 'id' component is simply removed from the related isues.]]></ns2:doc></ns2:param></ns2:request><ns2:response
+                     If this value is null, then the 'id' component is simply removed from the related issues.]]></ns2:doc></ns2:param></ns2:request><ns2:response
         status="204"><ns2:doc><![CDATA[An empty or error response.]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the component is successfully deleted.]]></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="403"><ns2:doc><![CDATA[An empty or error response.]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the currently authenticated user does not have permission to delete the component.]]></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="404"><ns2:doc><![CDATA[An empty or error response.]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the component does not exist or the currently authenticated user does not have permission to
@@ -218,7 +218,7 @@
         mediaType="application/json"><ns2:doc><ns3:p
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Schema</ns3:h6><ns3:pre><ns3:code>{"id":"https://docs.atlassian.com/jira/REST/schema/move-field#","title":"Move Field","type":"object","properties":{"after":{"type":"string","format":"uri"},"position":{"type":"string","enum":["Earlier","Later","First","Last"]}},"additionalProperties":false}</ns3:code></ns3:pre></ns3:p></ns2:doc></ns2:representation></ns2:request><ns2:response
         status="201"><ns2:doc><![CDATA[no content]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Successfully moved tab]]></ns2:doc></ns2:representation></ns2:response><ns2:response
-        status="400"><ns2:doc><![CDATA[no content]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if screen or tab does not exist. Or move cooridinates invalid.]]></ns2:doc></ns2:representation></ns2:response><ns2:response
+        status="400"><ns2:doc><![CDATA[no content]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if screen or tab does not exist. Or move coordinates invalid.]]></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="401"><ns2:doc><![CDATA[no content]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if you do not have permissions]]></ns2:doc></ns2:representation></ns2:response></ns2:method></ns2:resource><ns2:resource
         path="addToDefault/{fieldId}"><ns2:param
         name="fieldId" style="template" type="xs:string"
@@ -495,7 +495,7 @@
                         see {@link com.atlassian.jira.bc.admin.ApplicationPropertiesService.EditPermissionLevel}]]></ns2:doc></ns2:param><ns2:param
         name="keyFilter" style="query" type="xs:string"
         xmlns:xs="http://www.w3.org/2001/XMLSchema"><ns2:doc><![CDATA[when fetching a list allows the list to be filtered by the property's start of key
-                        e.g. "jira.lf.*" whould fetch only those permissions that are editable and whose keys start with
+                        e.g. "jira.lf.*" would fetch only those permissions that are editable and whose keys start with
                         "jira.lf.". This is a regex.]]></ns2:doc></ns2:param></ns2:request><ns2:response
         status="200"><ns2:doc><![CDATA[an application property.]]></ns2:doc><ns2:representation
         element="property"
@@ -687,7 +687,7 @@
         status="201"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation
         element="avatar"
         mediaType="text/html"><ns2:doc><ns3:p
-        xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Example</ns3:h6><ns3:pre><ns3:code>{"cropperWidth":120,"cropperOffsetX":50,"cropperOffsetY":50,"url":"http://example.com/jira/secure/temporaryavatar?cropped=true","needsCropping":true}</ns3:code></ns3:pre></ns3:p></ns2:doc><ns2:doc><![CDATA[temporary avatar cropping instructions embeded in HTML page. Error messages will also be embeded in the page.]]></ns2:doc><ns2:doc><ns3:p
+        xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Example</ns3:h6><ns3:pre><ns3:code>{"cropperWidth":120,"cropperOffsetX":50,"cropperOffsetY":50,"url":"http://example.com/jira/secure/temporaryavatar?cropped=true","needsCropping":true}</ns3:code></ns3:pre></ns3:p></ns2:doc><ns2:doc><![CDATA[temporary avatar cropping instructions embedded in HTML page. Error messages will also be embedded in the page.]]></ns2:doc><ns2:doc><ns3:p
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Schema</ns3:h6><ns3:pre><ns3:code>{"id":"https://docs.atlassian.com/jira/REST/schema/avatar-cropping#","title":"Avatar Cropping","type":"object","properties":{"cropperWidth":{"type":"integer"},"cropperOffsetX":{"type":"integer"},"cropperOffsetY":{"type":"integer"},"url":{"type":"string"},"needsCropping":{"type":"boolean"}},"additionalProperties":false,"required":["cropperWidth","cropperOffsetX","cropperOffsetY","needsCropping"]}</ns3:code></ns3:pre></ns3:p></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="401"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the calling user is not authenticated.]]></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="403"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the calling user does not have permission to administer JIRA.]]></ns2:doc></ns2:representation></ns2:response><ns2:response
@@ -751,7 +751,7 @@
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Example</ns3:h6><ns3:pre><ns3:code>{"id":"customfield_10101","name":"New custom field","custom":true,"orderable":true,"navigable":true,"searchable":true,"clauseNames":["cf[10101]","New custom field"],"schema":{"type":"project","custom":"com.atlassian.jira.plugin.system.customfieldtypes:project","customId":10101}}</ns3:code></ns3:pre></ns3:p></ns2:doc><ns2:doc><![CDATA[Returned if custom field was created.]]></ns2:doc><ns2:doc><ns3:p
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Schema</ns3:h6><ns3:pre><ns3:code>{"id":"https://docs.atlassian.com/jira/REST/schema/field#","title":"Field","type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"custom":{"type":"boolean"},"orderable":{"type":"boolean"},"navigable":{"type":"boolean"},"searchable":{"type":"boolean"},"clauseNames":{"type":"array","items":{"type":"string"}},"schema":{"title":"Json Type","type":"object","properties":{"type":{"type":"string"},"items":{"type":"string"},"system":{"type":"string"},"custom":{"type":"string"},"customId":{"type":"integer"}},"additionalProperties":false}},"additionalProperties":false}</ns3:code></ns3:pre></ns3:p></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="400"><ns2:doc><![CDATA[Response with information about created field]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the input is invalid (e.g. invalid values).]]></ns2:doc></ns2:representation></ns2:response><ns2:response
-        status="500"><ns2:doc><![CDATA[Response with information about created field]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if exception occured during custom field creation.]]></ns2:doc></ns2:representation></ns2:response></ns2:method><ns2:method
+        status="500"><ns2:doc><![CDATA[Response with information about created field]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if exception occurred during custom field creation.]]></ns2:doc></ns2:representation></ns2:response></ns2:method><ns2:method
         id="getFields"
         name="GET"><ns2:doc><![CDATA[Returns a list of all fields, both System and Custom]]></ns2:doc><ns2:response
         status="200"><ns2:doc><![CDATA[a response containing all fields as short Field Meta Beans]]></ns2:doc><ns2:representation
@@ -825,7 +825,7 @@
  in to this resources.
  </p>
  <p>
- For instance, to expand the &quot;changelog&quot; for all the issues on the search result, it is neccesary to
+ For instance, to expand the &quot;changelog&quot; for all the issues on the search result, it is necessary to
  specify &quot;changelog&quot; as one of the values to expand.
  </p>]]></ns2:doc><ns2:request><ns2:param
         name="jql" style="query" type="xs:string"
@@ -1997,7 +1997,7 @@
         status="201"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation
         element="avatar"
         mediaType="text/html"><ns2:doc><ns3:p
-        xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Example</ns3:h6><ns3:pre><ns3:code>{"cropperWidth":120,"cropperOffsetX":50,"cropperOffsetY":50,"url":"http://example.com/jira/secure/temporaryavatar?cropped=true","needsCropping":true}</ns3:code></ns3:pre></ns3:p></ns2:doc><ns2:doc><![CDATA[temporary avatar cropping instructions embeded in HTML page. Error messages will also be embeded in the page.]]></ns2:doc><ns2:doc><ns3:p
+        xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Example</ns3:h6><ns3:pre><ns3:code>{"cropperWidth":120,"cropperOffsetX":50,"cropperOffsetY":50,"url":"http://example.com/jira/secure/temporaryavatar?cropped=true","needsCropping":true}</ns3:code></ns3:pre></ns3:p></ns2:doc><ns2:doc><![CDATA[temporary avatar cropping instructions embedded in HTML page. Error messages will also be embedded in the page.]]></ns2:doc><ns2:doc><ns3:p
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Schema</ns3:h6><ns3:pre><ns3:code>{"id":"https://docs.atlassian.com/jira/REST/schema/avatar-cropping#","title":"Avatar Cropping","type":"object","properties":{"cropperWidth":{"type":"integer"},"cropperOffsetX":{"type":"integer"},"cropperOffsetY":{"type":"integer"},"url":{"type":"string"},"needsCropping":{"type":"boolean"}},"additionalProperties":false,"required":["cropperWidth","cropperOffsetX","cropperOffsetY","needsCropping"]}</ns3:code></ns3:pre></ns3:p></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="404"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the currently authenticated user does not have EDIT PROJECT permission.]]></ns2:doc></ns2:representation></ns2:response></ns2:method></ns2:resource><ns2:resource
         path="{projectIdOrKey}/avatar"><ns2:param
@@ -3321,7 +3321,7 @@
         name="POST"><ns2:doc><![CDATA[Creates a new session for a user in JIRA. Once a session has been successfully created it can be used to access
  any of JIRA's remote APIs and also the web UI by passing the appropriate HTTP Cookie header.
  <p>
- Note that it is generally preferrable to use HTTP BASIC authentication with the REST API. However, this resource
+ Note that it is generally preferable to use HTTP BASIC authentication with the REST API. However, this resource
  may be used to mimic the behaviour of JIRA's log-in page (e.g. to display log-in errors to a user).]]></ns2:doc><ns2:request><ns2:representation
         element="session"
         mediaType="application/json"><ns2:doc><ns3:p
@@ -3482,7 +3482,7 @@
         name="POST"><ns2:doc><![CDATA[Perform a transition on an issue.
  When performing the transition you can update or set other issue fields.
  <p/>
- The fields that can be set on transtion, in either the fields parameter or the update parameter can be determined
+ The fields that can be set on transition, in either the fields parameter or the update parameter can be determined
  using the <b>/rest/api/2/issue/{issueIdOrKey}/transitions?expand=transitions.fields</b> resource.
  If a field is not configured to appear on the transition screen, then it will not be in the transition metadata, and a field
  validation error will occur if it is submitted.]]></ns2:doc><ns2:request><ns2:representation
@@ -3704,22 +3704,22 @@
         type="xs:string"
         xmlns:xs="http://www.w3.org/2001/XMLSchema"><ns2:doc><![CDATA[combined with the projectKeys param, lists the projects with which to filter the results. If absent, all projects are returned.
                        This parameter can be specified multiple times, and/or be a comma-separated list.
-                       Specifiying a project that does not exist (or that you cannot create issues in) is not an error, but it will not be in the results.]]></ns2:doc></ns2:param><ns2:param
+                       Specifying a project that does not exist (or that you cannot create issues in) is not an error, but it will not be in the results.]]></ns2:doc></ns2:param><ns2:param
         name="projectKeys" style="query"
         type="xs:string"
         xmlns:xs="http://www.w3.org/2001/XMLSchema"><ns2:doc><![CDATA[combined with the projectIds param, lists the projects with which to filter the results. If null, all projects are returned.
                        This parameter can be specified multiple times, and/or be a comma-separated list.
-                       Specifiying a project that does not exist (or that you cannot create issues in) is not an error, but it will not be in the results.]]></ns2:doc></ns2:param><ns2:param
+                       Specifying a project that does not exist (or that you cannot create issues in) is not an error, but it will not be in the results.]]></ns2:doc></ns2:param><ns2:param
         name="issuetypeIds" style="query"
         type="xs:string"
-        xmlns:xs="http://www.w3.org/2001/XMLSchema"><ns2:doc><![CDATA[combinded with issuetypeNames, lists the issue types with which to filter the results. If null, all issue types are returned.
+        xmlns:xs="http://www.w3.org/2001/XMLSchema"><ns2:doc><![CDATA[combined with issuetypeNames, lists the issue types with which to filter the results. If null, all issue types are returned.
                        This parameter can be specified multiple times, and/or be a comma-separated list.
-                       Specifiying an issue type that does not exist is not an error.]]></ns2:doc></ns2:param><ns2:param
+                       Specifying an issue type that does not exist is not an error.]]></ns2:doc></ns2:param><ns2:param
         name="issuetypeNames" style="query"
         type="xs:string"
-        xmlns:xs="http://www.w3.org/2001/XMLSchema"><ns2:doc><![CDATA[combinded with issuetypeIds, lists the issue types with which to filter the results. If null, all issue types are returned.
+        xmlns:xs="http://www.w3.org/2001/XMLSchema"><ns2:doc><![CDATA[combined with issuetypeIds, lists the issue types with which to filter the results. If null, all issue types are returned.
                        This parameter can be specified multiple times, but is NOT interpreted as a comma-separated list.
-                       Specifiying an issue type that does not exist is not an error.]]></ns2:doc></ns2:param></ns2:request><ns2:response
+                       Specifying an issue type that does not exist is not an error.]]></ns2:doc></ns2:param></ns2:request><ns2:response
         status="200"><ns2:doc><![CDATA[a Response containing a CreateMetaBean]]></ns2:doc><ns2:representation
         mediaType="application/json"><ns2:doc><ns3:p
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Example</ns3:h6><ns3:pre><ns3:code>{"expand":"projects","projects":[{"self":"http://www.example.com/jira/rest/api/2/project/EX","id":"10000","key":"EX","name":"Example Project","avatarUrls":{"48x48":"http://www.example.com/jira/secure/projectavatar?pid=10000&amp;avatarId=10011","24x24":"http://www.example.com/jira/secure/projectavatar?size=small&amp;pid=10000&amp;avatarId=10011","16x16":"http://www.example.com/jira/secure/projectavatar?size=xsmall&amp;pid=10000&amp;avatarId=10011","32x32":"http://www.example.com/jira/secure/projectavatar?size=medium&amp;pid=10000&amp;avatarId=10011"},"issuetypes":[{"self":"http://www.example.com/jira/rest/api/2/issueType/1","id":"1","description":"An error in the code","iconUrl":"http://www.example.com/jira/images/icons/issuetypes/bug.png","name":"Bug","subtask":false,"fields":{"issuetype":{"required":true,"name":"Issue Type","hasDefaultValue":false,"operations":["set"]}}}]}]}</ns3:code></ns3:pre></ns3:p></ns2:doc><ns2:doc><![CDATA[Returns the meta data for creating issues.]]></ns2:doc><ns2:doc><ns3:p
@@ -4064,7 +4064,7 @@
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Example</ns3:h6><ns3:pre><ns3:code>{"cropperWidth":120,"cropperOffsetX":50,"cropperOffsetY":50,"url":"http://example.com/jira/secure/temporaryavatar?cropped=true","needsCropping":true}</ns3:code></ns3:pre></ns3:p></ns2:doc><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:doc><ns3:p
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Schema</ns3:h6><ns3:pre><ns3:code>{"id":"https://docs.atlassian.com/jira/REST/schema/avatar-cropping#","title":"Avatar Cropping","type":"object","properties":{"cropperWidth":{"type":"integer"},"cropperOffsetX":{"type":"integer"},"cropperOffsetY":{"type":"integer"},"url":{"type":"string"},"needsCropping":{"type":"boolean"}},"additionalProperties":false,"required":["cropperWidth","cropperOffsetX","cropperOffsetY","needsCropping"]}</ns3:code></ns3:pre></ns3:p></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="500"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if an error occurs while converting temporary avatar to real avatar]]></ns2:doc></ns2:representation></ns2:response><ns2:response
-        status="403"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the request does not conain a valid XSRF token]]></ns2:doc></ns2:representation></ns2:response><ns2:response
+        status="403"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the request does not contain a valid XSRF token]]></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="404"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the currently authenticated user does not have EDIT PROJECT permission.]]></ns2:doc></ns2:representation></ns2:response></ns2:method><ns2:method
         id="storeTemporaryAvatarUsingMultiPart"
         name="POST"><ns2:doc><![CDATA[Creates temporary avatar using multipart. The response is sent back as JSON stored in a textarea. This is because
@@ -4089,7 +4089,7 @@
         status="201"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation
         element="avatar"
         mediaType="text/html"><ns2:doc><ns3:p
-        xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Example</ns3:h6><ns3:pre><ns3:code>{"cropperWidth":120,"cropperOffsetX":50,"cropperOffsetY":50,"url":"http://example.com/jira/secure/temporaryavatar?cropped=true","needsCropping":true}</ns3:code></ns3:pre></ns3:p></ns2:doc><ns2:doc><![CDATA[temporary avatar cropping instructions embeded in HTML page. Error messages will also be embeded in the page.]]></ns2:doc><ns2:doc><ns3:p
+        xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Example</ns3:h6><ns3:pre><ns3:code>{"cropperWidth":120,"cropperOffsetX":50,"cropperOffsetY":50,"url":"http://example.com/jira/secure/temporaryavatar?cropped=true","needsCropping":true}</ns3:code></ns3:pre></ns3:p></ns2:doc><ns2:doc><![CDATA[temporary avatar cropping instructions embedded in HTML page. Error messages will also be embedded in the page.]]></ns2:doc><ns2:doc><ns3:p
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Schema</ns3:h6><ns3:pre><ns3:code>{"id":"https://docs.atlassian.com/jira/REST/schema/avatar-cropping#","title":"Avatar Cropping","type":"object","properties":{"cropperWidth":{"type":"integer"},"cropperOffsetX":{"type":"integer"},"cropperOffsetY":{"type":"integer"},"url":{"type":"string"},"needsCropping":{"type":"boolean"}},"additionalProperties":false,"required":["cropperWidth","cropperOffsetX","cropperOffsetY","needsCropping"]}</ns3:code></ns3:pre></ns3:p></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="500"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if an error occurs while converting temporary avatar to real avatar]]></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="404"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if user does NOT exist]]></ns2:doc></ns2:representation></ns2:response></ns2:method></ns2:resource><ns2:resource
@@ -4370,7 +4370,7 @@
         xmlns:ns3="http://www.w3.org/1999/xhtml"><ns3:h6>Schema</ns3:h6><ns3:pre><ns3:code>{"id":"https://docs.atlassian.com/jira/REST/schema/avatar-cropping#","title":"Avatar Cropping","type":"object","properties":{"cropperWidth":{"type":"integer"},"cropperOffsetX":{"type":"integer"},"cropperOffsetY":{"type":"integer"},"url":{"type":"string"},"needsCropping":{"type":"boolean"}},"additionalProperties":false,"required":["cropperWidth","cropperOffsetX","cropperOffsetY","needsCropping"]}</ns3:code></ns3:pre></ns3:p></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="400"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Valiation failed. For example filesize is beyond max attachment size.]]></ns2:doc></ns2:representation></ns2:response><ns2:response
         status="500"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if an error occurs while converting temporary avatar to real avatar]]></ns2:doc></ns2:representation></ns2:response><ns2:response
-        status="403"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the request does not conain a valid XSRF token]]></ns2:doc></ns2:representation></ns2:response></ns2:method></ns2:resource><ns2:resource
+        status="403"><ns2:doc><![CDATA[temporary avatar cropping instructions]]></ns2:doc><ns2:representation><ns2:doc><![CDATA[Returned if the request does not contain a valid XSRF token]]></ns2:doc></ns2:representation></ns2:response></ns2:method></ns2:resource><ns2:resource
         path="{type}/temporaryCrop"><ns2:param name="type"
                                                style="template" type="xs:string"
                                                xmlns:xs="http://www.w3.org/2001/XMLSchema"><ns2:doc><![CDATA[the avatar type]]></ns2:doc></ns2:param><ns2:method
