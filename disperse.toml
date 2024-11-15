@@ -1,0 +1,5 @@
+tag-name = "v$VERSION"
+release-timeout = 5
+
+[github]
+url = "https://github.com/jelmer/wadl"
