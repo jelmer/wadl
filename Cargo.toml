@@ -14,7 +14,7 @@ env_logger = { version = ">=0.10", optional = true }
 form_urlencoded = "1.2.1"
 html2md = { version = "0.2.15", optional = true }
 lazy_static = "1"
-log = "0.4.22"
+log = "0.4.25"
 mime = "0.3.17"
 proc-macro2 = { version = "1", optional = true }
 quote = { version = "1", optional = true }
