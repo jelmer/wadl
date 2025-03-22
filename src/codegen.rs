@@ -333,6 +333,7 @@ fn simple_type_rust_type(
         "int" => ("i32".to_string(), vec![]),
         "string" => ("String".to_string(), vec![]),
         "binary" => ("Vec<u8>".to_string(), vec![]),
+        "boolean" => ("bool".to_string(), vec![]),
         u => panic!("Unknown type: {}", u),
     }
 }
