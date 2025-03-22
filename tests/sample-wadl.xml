@@ -24,6 +24,9 @@
                     <param xmlns:xs="http://www.w3.org/2001/XMLSchema" type="xs:string" style="query" name="password">
                         <doc>The password</doc>
                     </param>
+                    <param xmlns:xs="http://www.w3.org/2001/XMLSchema" type="xs:boolean" style="query" name="eula">
+                        <doc>EULA click through.</doc>
+                    </param>
                     <representation mediaType="application/json"/>
                 </request>
                 <response>
