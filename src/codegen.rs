@@ -13,10 +13,6 @@ pub enum ParamContainer<'a> {
     Representation(&'a RepresentationDef),
 }
 
-fn nillable(param: &Param) -> bool {
-    !param.required
-}
-
 /// Convert wadl names (with dashes) to camel-case Rust names
 pub fn camel_case_name(name: &str) -> String {
     let mut it = name.chars().peekable();
@@ -164,7 +160,7 @@ fn generate_resource_type_ref_accessors(
         } else {
             None
         };
-        if nillable(param) {
+        if config.nillable(param) {
             ret_type = format!("Option<{}>", ret_type);
         }
         let accessor_name = if let Some(rename_fn) = config.param_accessor_rename.as_ref() {
@@ -192,7 +188,7 @@ fn generate_resource_type_ref_accessors(
             accessor_name,
             ret_type
         ));
-        if !nillable(param) {
+        if !config.nillable(param) {
             if let Some(map_fn) = map_fn {
                 lines.push(format!(
                     "        {}({}(self.{}.clone())\n",
@@ -234,7 +230,7 @@ fn generate_resource_type_ref_accessors(
             ret_type
         ));
 
-        if !nillable(param) {
+        if !config.nillable(param) {
             lines.push(format!(
                 "        self.{} = value.url().clone();\n",
                 field_name
@@ -378,7 +374,7 @@ fn param_rust_type(
         param_type = format!("Vec<{}>", param_type);
     }
 
-    if nillable(param) {
+    if config.nillable(param) {
         param_type = format!("Option<{}>", param_type);
     }
 
@@ -454,7 +450,7 @@ fn generate_representation_struct_json(
         ));
     }
 
-    let derive_default = input.params.iter().all(|x| nillable(x));
+    let derive_default = input.params.iter().all(|x| config.nillable(x));
 
     lines.push(
         "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n".to_string(),
@@ -1196,7 +1192,7 @@ fn generate_method_representation(
                 ParamStyle::Header => {
                     if !param.links.is_empty() {
                         let r = &param.links[0].resource_type.as_ref().unwrap();
-                        if !nillable(param) {
+                        if !config.nillable(param) {
                             return_types.push((
                                 format!(
                                     "{}(resp.headers().get(\"{}\")?.to_str()?.parse().unwrap())",
@@ -1430,6 +1426,11 @@ impl Config {
         } else {
             "wadl::blocking::Client"
         }
+    }
+
+    /// Check whether the parameter is can be nil
+    pub fn nillable(&self, param: &Param) -> bool {
+        !param.required
     }
 }
 
