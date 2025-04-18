@@ -418,7 +418,7 @@ pub struct Param {
     /// Path of the parameter.
     pub path: Option<String>,
 
-    /// Whether the parameter is required.
+    /// Whether the parameter is required, i.e. must be present in the request.
     pub required: bool,
 
     /// Whether the parameter is repeating.
