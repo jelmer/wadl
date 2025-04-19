@@ -160,7 +160,7 @@ fn generate_resource_type_ref_accessors(
         } else {
             None
         };
-        if !param.required {
+        if config.nillable(param) {
             ret_type = format!("Option<{}>", ret_type);
         }
         let accessor_name = if let Some(rename_fn) = config.param_accessor_rename.as_ref() {
@@ -188,7 +188,7 @@ fn generate_resource_type_ref_accessors(
             accessor_name,
             ret_type
         ));
-        if param.required {
+        if !config.nillable(param) {
             if let Some(map_fn) = map_fn {
                 lines.push(format!(
                     "        {}({}(self.{}.clone())\n",
@@ -230,7 +230,7 @@ fn generate_resource_type_ref_accessors(
             ret_type
         ));
 
-        if param.required {
+        if !config.nillable(param) {
             lines.push(format!(
                 "        self.{} = value.url().clone();\n",
                 field_name
@@ -374,7 +374,7 @@ fn param_rust_type(
         param_type = format!("Vec<{}>", param_type);
     }
 
-    if !param.required {
+    if config.nillable(param) {
         param_type = format!("Option<{}>", param_type);
     }
 
@@ -450,7 +450,7 @@ fn generate_representation_struct_json(
         ));
     }
 
-    let derive_default = input.params.iter().all(|x| !x.required);
+    let derive_default = input.params.iter().all(|x| config.nillable(x));
 
     lines.push(
         "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n".to_string(),
@@ -640,9 +640,9 @@ fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config) ->
     lines
 }
 
-fn apply_map_fn(map_fn: Option<&str>, ret: &str, required: bool) -> String {
+fn apply_map_fn(map_fn: Option<&str>, ret: &str, nillable: bool) -> String {
     if let Some(map_fn) = map_fn {
-        if required {
+        if !nillable {
             if map_fn.starts_with('|') {
                 format!("({})({})", map_fn, ret)
             } else {
@@ -1169,7 +1169,7 @@ fn generate_method_representation(
         } else if return_types.len() == 1 {
             format!(
                 "Ok({})",
-                apply_map_fn(map_fn.as_deref(), &return_types[0].0, return_types[0].1)
+                apply_map_fn(map_fn.as_deref(), &return_types[0].0, !return_types[0].1)
             )
         } else {
             let v = format!(
@@ -1180,7 +1180,7 @@ fn generate_method_representation(
                     .collect::<Vec<_>>()
                     .join(", ")
             );
-            format!("Ok({})", apply_map_fn(map_fn.as_deref(), &v, true))
+            format!("Ok({})", apply_map_fn(map_fn.as_deref(), &v, false))
         }
     };
 
@@ -1192,7 +1192,7 @@ fn generate_method_representation(
                 ParamStyle::Header => {
                     if !param.links.is_empty() {
                         let r = &param.links[0].resource_type.as_ref().unwrap();
-                        if param.required {
+                        if !config.nillable(param) {
                             return_types.push((
                                 format!(
                                     "{}(resp.headers().get(\"{}\")?.to_str()?.parse().unwrap())",
@@ -1416,6 +1416,9 @@ pub struct Config {
 
     /// Convert a string to a multipart Part, given a type name and value
     pub convert_to_multipart: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
+
+    /// Check whether a parameter can be nil
+    pub nillable_param: Option<Box<dyn Fn(&Param) -> bool>>,
 }
 
 impl Config {
@@ -1425,6 +1428,15 @@ impl Config {
             "wadl::r#async::Client"
         } else {
             "wadl::blocking::Client"
+        }
+    }
+
+    /// Check whether the parameter is can be nil
+    pub fn nillable(&self, param: &Param) -> bool {
+        if let Some(nillable_param) = self.nillable_param.as_ref() {
+            nillable_param(param)
+        } else {
+            !param.required
         }
     }
 }
@@ -2130,18 +2142,21 @@ This is another test"#;
 
     #[test]
     fn test_apply_map_fn() {
-        assert_eq!(apply_map_fn(None, "x", true), "x".to_string());
-        assert_eq!(apply_map_fn(Some("Some"), "x", true), "Some(x)".to_string());
+        assert_eq!(apply_map_fn(None, "x", false), "x".to_string());
         assert_eq!(
             apply_map_fn(Some("Some"), "x", false),
+            "Some(x)".to_string()
+        );
+        assert_eq!(
+            apply_map_fn(Some("Some"), "x", true),
             "x.map(Some)".to_string()
         );
         assert_eq!(
-            apply_map_fn(Some("|y|y+1"), "x", true),
+            apply_map_fn(Some("|y|y+1"), "x", false),
             "(|y|y+1)(x)".to_string()
         );
         assert_eq!(
-            apply_map_fn(Some("|y|y+1"), "x", false),
+            apply_map_fn(Some("|y|y+1"), "x", true),
             "x.map(|y|y+1)".to_string()
         );
     }
