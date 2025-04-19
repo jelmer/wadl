@@ -412,7 +412,7 @@ pub struct Param {
     /// The name of the parameter.
     pub name: String,
 
-    /// The type of the parameter.
+    /// The type of the parameter. This will be a XSD type, e.g. `xs:string`.
     pub r#type: String,
 
     /// Path of the parameter.

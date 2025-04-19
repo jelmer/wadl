@@ -1416,6 +1416,9 @@ pub struct Config {
 
     /// Convert a string to a multipart Part, given a type name and value
     pub convert_to_multipart: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
+
+    /// Check whether a parameter can be nil
+    pub nillable_param: Option<Box<dyn Fn(&Param) -> bool>>,
 }
 
 impl Config {
@@ -1430,7 +1433,11 @@ impl Config {
 
     /// Check whether the parameter is can be nil
     pub fn nillable(&self, param: &Param) -> bool {
-        !param.required
+        if let Some(nillable_param) = self.nillable_param.as_ref() {
+            nillable_param(param)
+        } else {
+            !param.required
+        }
     }
 }
 
