@@ -642,7 +642,7 @@ fn format_arg_doc(name: &str, doc: Option<&crate::ast::Doc>, config: &Config) ->
 
 fn apply_map_fn(map_fn: Option<&str>, ret: &str, nillable: bool) -> String {
     if let Some(map_fn) = map_fn {
-        if !nillable{
+        if !nillable {
             if map_fn.starts_with('|') {
                 format!("({})({})", map_fn, ret)
             } else {
@@ -2143,7 +2143,10 @@ This is another test"#;
     #[test]
     fn test_apply_map_fn() {
         assert_eq!(apply_map_fn(None, "x", false), "x".to_string());
-        assert_eq!(apply_map_fn(Some("Some"), "x", false), "Some(x)".to_string());
+        assert_eq!(
+            apply_map_fn(Some("Some"), "x", false),
+            "Some(x)".to_string()
+        );
         assert_eq!(
             apply_map_fn(Some("Some"), "x", true),
             "x.map(Some)".to_string()
