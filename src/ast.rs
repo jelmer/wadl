@@ -412,13 +412,13 @@ pub struct Param {
     /// The name of the parameter.
     pub name: String,
 
-    /// The type of the parameter.
+    /// The type of the parameter. This will be a XSD type, e.g. `xs:string`.
     pub r#type: String,
 
     /// Path of the parameter.
     pub path: Option<String>,
 
-    /// Whether the parameter is required.
+    /// Whether the parameter is required, i.e. must be present in the request.
     pub required: bool,
 
     /// Whether the parameter is repeating.
