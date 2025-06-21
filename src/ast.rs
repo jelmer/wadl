@@ -435,6 +435,9 @@ pub struct Param {
 
     /// The options for the parameter.
     pub options: Option<Options>,
+
+    /// The default value of the parameter.
+    pub default: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
