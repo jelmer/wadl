@@ -147,6 +147,9 @@ fn generate_resource_type_ref_accessors(
             .unwrap_or(false);
         if let Some(doc) = param.doc.as_ref() {
             lines.extend(generate_doc(doc, 1, config));
+        } else {
+            // Generate default getter documentation
+            lines.push(format!("    /// Get the {} value.\n", param.name));
         }
         let field_type = camel_case_name(id);
         let mut ret_type = field_type.to_string();
@@ -218,6 +221,9 @@ fn generate_resource_type_ref_accessors(
         if deprecated {
             lines.push("    #[deprecated]".to_string());
         }
+
+        // Add setter documentation
+        lines.push(format!("    /// Set the {} value.\n", param.name));
 
         lines.push(format!(
             "    {}fn set_{}(&mut self, value: {}) {{\n",
@@ -812,6 +818,20 @@ fn serialize_representation_def(
     lines
 }
 
+/// Generate code for a WADL method (HTTP GET, POST, PUT, DELETE, etc.).
+///
+/// This function generates Rust methods that correspond to HTTP operations defined
+/// in the WADL specification. It creates both representation-based methods and
+/// WADL-specific methods when applicable.
+///
+/// # Arguments
+/// * `input` - The WADL method definition containing HTTP method details
+/// * `parent_id` - The ID of the parent resource type
+/// * `config` - Configuration options for code generation
+/// * `options_names` - Mapping of option sets to their generated enum names
+///
+/// # Returns
+/// A vector of strings containing the generated Rust code lines
 fn generate_method(
     input: &Method,
     parent_id: &str,
@@ -831,6 +851,22 @@ fn generate_method(
     lines
 }
 
+/// Generate Rust code for a WADL method that retrieves WADL descriptions.
+///
+/// This function creates methods that fetch WADL representations from endpoints.
+/// These methods are generated when a resource supports returning its own WADL
+/// description (typically for dynamic API discovery). The generated method will:
+/// - Build a request with appropriate WADL accept headers
+/// - Parse the returned WADL XML into AST structures
+/// - Return the corresponding resource definition
+///
+/// # Arguments
+/// * `input` - The WADL method definition
+/// * `parent_id` - The ID of the parent resource type (used for method naming)
+/// * `config` - Configuration for code generation (async/sync mode)
+///
+/// # Returns
+/// A vector of strings containing the generated Rust method for WADL retrieval
 fn generate_method_wadl(input: &Method, parent_id: &str, config: &Config) -> Vec<String> {
     let mut lines = vec![];
 
@@ -841,6 +877,17 @@ fn generate_method_wadl(input: &Method, parent_id: &str, config: &Config) -> Vec
     let name = snake_case_name(name);
 
     let async_prefix = if config.r#async { "async " } else { "" };
+
+    // Add documentation for WADL method
+    lines.push("    /// Retrieve the WADL description for this resource.\n".to_string());
+    lines.push("    ///\n".to_string());
+    lines.push("    /// This method fetches the WADL (Web Application Description Language) specification\n".to_string());
+    lines.push(
+        "    /// for the current resource, allowing for runtime API discovery.\n".to_string(),
+    );
+    lines.push("    ///\n".to_string());
+    lines.push("    /// # Returns\n".to_string());
+    lines.push("    /// Returns the `wadl::ast::Resource` definition on success, or an error if the request fails.\n".to_string());
 
     lines.push(format!("    pub {}fn {}_wadl<'a>(&self, client: &'a dyn {}) -> std::result::Result<wadl::ast::Resource, wadl::Error> {{\n", async_prefix, name, config.client_trait_name()));
 
@@ -900,6 +947,23 @@ fn generate_method_wadl(input: &Method, parent_id: &str, config: &Config) -> Vec
     lines
 }
 
+/// Generate Rust code for a WADL method that handles representations.
+///
+/// This function creates the actual implementation of HTTP methods (GET, POST, PUT, DELETE, etc.)
+/// that handle request/response representations. It generates type-safe Rust methods that:
+/// - Accept appropriate parameters based on the WADL definition
+/// - Build HTTP requests with proper headers and query parameters
+/// - Serialize request bodies according to the representation type
+/// - Deserialize responses into strongly-typed Rust structures
+///
+/// # Arguments
+/// * `input` - The WADL method definition containing request/response specifications
+/// * `parent_id` - The ID of the parent resource type (used for method naming)
+/// * `config` - Configuration for code generation (async/sync, visibility, etc.)
+/// * `options_names` - Mapping of option sets to their generated enum names
+///
+/// # Returns
+/// A vector of strings containing the generated Rust method implementation
 fn generate_method_representation(
     input: &Method,
     parent_id: &str,
@@ -965,8 +1029,24 @@ fn generate_method_representation(
             .flatten(),
     );
 
-    for doc in &input.docs {
-        lines.extend(generate_doc(doc, 1, config));
+    // Generate documentation for the method
+    if input.docs.is_empty() {
+        // Generate a default docstring based on the HTTP method and resource
+        let method_verb = match input.name.as_str() {
+            "GET" => "Retrieve",
+            "POST" => "Create",
+            "PUT" => "Update",
+            "DELETE" => "Delete",
+            "PATCH" => "Partially update",
+            "HEAD" => "Get headers for",
+            _ => "Perform operation on",
+        };
+        lines.push(format!("    /// {} the resource.\n", method_verb));
+        lines.push("    ///\n".to_string());
+    } else {
+        for doc in &input.docs {
+            lines.extend(generate_doc(doc, 1, config));
+        }
     }
 
     if !params.is_empty() {
@@ -1003,6 +1083,17 @@ fn generate_method_representation(
 
         lines.extend(format_arg_doc(param_name, param.doc.as_ref(), config));
     }
+
+    // Add returns documentation
+    if ret_type != "()" {
+        lines.push("    ///\n".to_string());
+        lines.push("    /// # Returns\n".to_string());
+        lines.push(format!(
+            "    /// Returns `{}` on success, or an error if the request fails.\n",
+            ret_type
+        ));
+    }
+
     line.push_str(") -> std::result::Result<");
     line.push_str(ret_type.as_str());
 
@@ -2177,6 +2268,8 @@ This is another test"#;
         let config = Config::default();
         let lines = generate_method(&input, "bar", &config, &HashMap::new());
         assert_eq!(lines, vec![
+        "    /// Retrieve the resource.\n".to_string(),
+        "    ///\n".to_string(),
         "    pub fn foo<'a>(&self, client: &'a dyn wadl::blocking::Client) -> std::result::Result<(), wadl::Error> {\n".to_string(),
         "        let mut url_ = self.url().clone();\n".to_string(),
         "\n".to_string(),
