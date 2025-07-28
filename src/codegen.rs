@@ -580,7 +580,7 @@ fn rust_type_for_response(
                     ret.push(param_type);
                 }
                 if ret.len() == 1 {
-                    ret[0].clone()
+                    ret.into_iter().next().unwrap()
                 } else {
                     format!("({})", ret.join(", "))
                 }
@@ -599,7 +599,7 @@ fn rust_type_for_response(
             ret.push(param_type);
         }
         if ret.len() == 1 {
-            ret[0].clone()
+            ret.into_iter().next().unwrap()
         } else {
             format!("({})", ret.join(", "))
         }

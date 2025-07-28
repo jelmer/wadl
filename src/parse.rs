@@ -764,7 +764,7 @@ fn parse_method(method_element: &Element) -> Method {
     let request_element = method_element
         .children
         .iter()
-        .find(|node| node.as_element().map_or(false, |e| e.name == "request"))
+        .find(|node| node.as_element().is_some_and(|e| e.name == "request"))
         .and_then(|node| node.as_element());
 
     let request = request_element.map(parse_request).unwrap_or_default();
@@ -772,7 +772,7 @@ fn parse_method(method_element: &Element) -> Method {
     let responses = method_element
         .children
         .iter()
-        .filter(|node| node.as_element().map_or(false, |e| e.name == "response"))
+        .filter(|node| node.as_element().is_some_and(|e| e.name == "response"))
         .map(|node| node.as_element().unwrap())
         .map(parse_response)
         .collect();
