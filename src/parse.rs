@@ -165,6 +165,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     .attributes
                     .get("type")
                     .cloned()
+                    // TODO: find prefix for XMLSchema and use $prefix:string
                     .unwrap_or_else(|| "string".to_string());
                 let path = element.attributes.get("path").cloned();
                 let required = element
