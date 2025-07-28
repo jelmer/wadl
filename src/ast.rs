@@ -1,7 +1,7 @@
 //! Abstract syntax tree for WADL documents.
 use iri_string::spec::IriSpec;
 use iri_string::types::RiReferenceString;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use url::Url;
 
 /// Identifier for a resource, method, parameter, etc.
@@ -78,11 +78,11 @@ impl Application {
     /// Iterate over all types defined in this application.
     pub fn iter_referenced_types(&self) -> impl Iterator<Item = String> + '_ {
         self.iter_resources()
-            .flat_map(|(_u, r)| r.iter_referenced_types())
+            .flat_map(|(_u, r)| r.iter_referenced_types().map(|s| s.to_string()))
             .chain(
                 self.resource_types
                     .iter()
-                    .flat_map(|rt| rt.iter_referenced_types()),
+                    .flat_map(|rt| rt.iter_referenced_types().map(|s| s.to_string())),
             )
     }
 
@@ -186,25 +186,14 @@ impl ResourceTypeRef {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 /// An option element defines one of a set of possible values for the parameter represented by its parent param element.
-pub struct Options(HashMap<String, Option<mime::Mime>>);
-
-impl std::hash::Hash for Options {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let mut items = self.0.iter().collect::<Vec<_>>();
-        items.sort();
-        for (key, value) in items {
-            key.hash(state);
-            value.hash(state);
-        }
-    }
-}
+pub struct Options(BTreeMap<String, Option<mime::Mime>>);
 
 impl Options {
     /// Create a new options object
     pub fn new() -> Self {
-        Self(HashMap::new())
+        Self::default()
     }
 
     /// Number of items in this Options
@@ -289,18 +278,18 @@ impl Resource {
     }
 
     /// Iterate over all parameters defined in this resource.
-    pub(crate) fn iter_all_params(&self) -> impl Iterator<Item = &Param> {
-        let mut params = self.params.iter().collect::<Vec<_>>();
-
-        params.extend(self.subresources.iter().flat_map(|r| r.iter_all_params()));
-        params.extend(self.methods.iter().flat_map(|m| m.iter_all_params()));
-
-        params.into_iter()
+    pub(crate) fn iter_all_params(&self) -> Box<dyn Iterator<Item = &Param> + '_> {
+        Box::new(
+            self.params
+                .iter()
+                .chain(self.subresources.iter().flat_map(|r| r.iter_all_params()))
+                .chain(self.methods.iter().flat_map(|m| m.iter_all_params())),
+        )
     }
 
     /// Iterate over all types referenced by this resource.
-    pub fn iter_referenced_types(&self) -> impl Iterator<Item = String> + '_ {
-        self.iter_all_params().map(|p| p.r#type.clone())
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = &str> + '_ {
+        self.iter_all_params().map(|p| p.r#type.as_str())
     }
 }
 
@@ -668,7 +657,7 @@ impl ResourceType {
     }
 
     /// Returns an iterator over all types referenced by this resource type.
-    pub fn iter_referenced_types(&self) -> impl Iterator<Item = String> + '_ {
-        self.iter_all_params().map(|p| p.r#type.clone())
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = &str> + '_ {
+        self.iter_all_params().map(|p| p.r#type.as_str())
     }
 }
