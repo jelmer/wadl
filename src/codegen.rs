@@ -38,19 +38,19 @@ pub fn camel_case_name(name: &str) -> String {
 pub fn snake_case_name(name: &str) -> String {
     let mut name = name.to_string();
     name = name.replace('-', "_");
-    let it = name.chars().peekable();
     let mut result = String::new();
-    let mut started = false;
-    for c in it {
+    let mut prev_upper = false;
+
+    for c in name.chars() {
         if c.is_uppercase() {
-            if !result.is_empty() && !started && !result.ends_with('_') {
+            if !result.is_empty() && !prev_upper && !result.ends_with('_') {
                 result.push('_');
-                started = true;
             }
-            result.push_str(c.to_lowercase().collect::<String>().as_str());
+            result.push_str(&c.to_lowercase().to_string());
+            prev_upper = true;
         } else {
             result.push(c);
-            started = false;
+            prev_upper = false;
         }
     }
     result
