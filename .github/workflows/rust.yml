@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - run: cargo install cargo-deny
     - name: Install cargo-all-features
       run: cargo install cargo-all-features
