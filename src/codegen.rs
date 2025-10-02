@@ -456,7 +456,10 @@ fn generate_representation_struct_json(
         ));
     }
 
-    let derive_default = input.params.iter().all(|x| config.nillable(x));
+    let derive_default = input
+        .params
+        .iter()
+        .all(|x| config.nillable(x) || x.default.is_some());
 
     lines.push(
         "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n".to_string(),
@@ -514,6 +517,7 @@ fn generate_representation_struct_json(
     lines.push("}\n".to_string());
 
     if derive_default {
+        lines.push("\n".to_owned());
         lines.push(format!("impl Default for {} {{\n", name));
         lines.push("    fn default() -> Self {\n".to_string());
         lines.push("        Self {\n".to_string());
@@ -522,7 +526,21 @@ fn generate_representation_struct_json(
 
             let param_name = escape_rust_reserved(param_name.as_str());
 
-            lines.push(format!("            {}: Default::default(),\n", param_name));
+            if let Some(default) = param.default.as_ref() {
+                if config.nillable(param) {
+                    lines.push(format!(
+                        "            {}: Some({}.parse().expect(\"error parsing default value for {}\")),\n",
+                        param_name, quote::quote! {#default}.to_string(), param.r#type
+                    ));
+                } else {
+                    lines.push(format!(
+                        "            {}: {}.parse().expect(\"error parsing default value for {}\"),\n",
+                        param_name, quote::quote! {#default}.to_string(), param.r#type
+                    ));
+                }
+            } else {
+                lines.push(format!("            {}: Default::default(),\n", param_name));
+            }
         }
 
         lines.push("        }\n".to_string());
@@ -1848,6 +1866,7 @@ This is another test"#;
             id: None,
             style: ParamStyle::Plain,
             path: None,
+            default: None,
             links: vec![crate::ast::Link {
                 resource_type: Some(rt),
                 relation: None,
@@ -2011,6 +2030,7 @@ This is another test"#;
                     fixed: None,
                     links: vec![],
                     options: None,
+                    default: None,
                 },
                 Param {
                     name: "age".to_string(),
@@ -2024,6 +2044,7 @@ This is another test"#;
                     fixed: None,
                     links: vec![],
                     options: None,
+                    default: None,
                 },
             ],
         };
@@ -2083,6 +2104,7 @@ This is another test"#;
                 path: None,
                 links: Vec::new(),
                 options: None,
+                default: None,
             }],
             ..Default::default()
         };
@@ -2113,6 +2135,7 @@ This is another test"#;
                 path: None,
                 links: Vec::new(),
                 options: None,
+                default: None,
             },
             Param {
                 id: Some("bar".to_string()),
@@ -2126,6 +2149,7 @@ This is another test"#;
                 path: None,
                 links: Vec::new(),
                 options: None,
+                default: None,
             },
         ];
         assert_eq!(
@@ -2143,6 +2167,7 @@ This is another test"#;
             repeating: false,
             fixed: None,
             path: None,
+            default: None,
             links: vec![Link {
                 relation: None,
                 reverse_relation: None,
@@ -2166,6 +2191,7 @@ This is another test"#;
             repeating: false,
             fixed: None,
             path: None,
+            default: None,
             links: vec![Link {
                 relation: None,
                 reverse_relation: None,
@@ -2188,6 +2214,7 @@ This is another test"#;
             required: true,
             repeating: false,
             fixed: None,
+            default: None,
             options: None,
             path: None,
             links: vec![Link {
@@ -2310,6 +2337,82 @@ This is another test"#;
                 "        &self.0\n".to_string(),
                 "    }\n".to_string(),
                 "}\n".to_string(),
+                "\n".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_generate_representation_param_default() {
+        let input = RepresentationDef {
+            media_type: Some("application/json".parse().unwrap()),
+            element: None,
+            profile: None,
+            docs: vec![],
+            id: Some("person".to_string()),
+            params: vec![
+                Param {
+                    name: "name".to_string(),
+                    r#type: "string".to_string(),
+                    style: ParamStyle::Plain,
+                    required: true,
+                    doc: Some(Doc::new("The name of the person".to_string())),
+                    path: None,
+                    id: None,
+                    repeating: false,
+                    fixed: None,
+                    links: vec![],
+                    options: None,
+                    default: Some("John Doe".to_string()),
+                },
+                Param {
+                    name: "age".to_string(),
+                    r#type: "xs:int".to_string(),
+                    required: false,
+                    doc: Some(Doc::new("The age of the person".to_string())),
+                    style: ParamStyle::Query,
+                    path: None,
+                    id: None,
+                    repeating: false,
+                    fixed: None,
+                    links: vec![],
+                    options: None,
+                    default: None,
+                },
+            ],
+        };
+
+        let config = Config::default();
+
+        let lines = generate_representation_struct_json(&input, &config, &HashMap::new());
+
+        assert_eq!(
+            lines,
+            vec![
+                "/// Representation of the `person` resource\n".to_string(),
+                "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n"
+                    .to_string(),
+                "pub struct Person {\n".to_string(),
+                "    // was: string\n".to_string(),
+                "    /// The name of the person\n".to_string(),
+                "    pub name: String,\n".to_string(),
+                "\n".to_string(),
+                "    // was: xs:int\n".to_string(),
+                "    /// The age of the person\n".to_string(),
+                "    pub age: Option<i32>,\n".to_string(),
+                "\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+
+                "impl Default for Person {\n".to_string(),
+                "    fn default() -> Self {\n".to_string()
+                , "        Self {\n".to_string(),
+                "            name: \"John Doe\".parse().expect(\"error parsing default value for string\"),\n".to_string(),
+                "            age: Default::default(),\n".to_string(),
+                "        }\n".to_string(),
+                "    }\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
                 "\n".to_string(),
             ]
         );
