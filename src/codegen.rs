@@ -283,6 +283,13 @@ fn generate_representation(
     lines.push(format!("impl {} {{\n", name));
 
     for param in &input.params {
+        // Check if this param was filtered out
+        if let Some(filter) = config.filter_param.as_ref() {
+            if !filter(param) {
+                continue;
+            }
+        }
+
         let field_name = snake_case_name(param.name.as_str());
         // We expect to support multiple types here in the future
         for link in &param.links {
@@ -479,6 +486,13 @@ fn generate_representation_struct_json(
     ));
 
     for param in &input.params {
+        // Check if we should filter this param
+        if let Some(filter) = config.filter_param.as_ref() {
+            if !filter(param) {
+                continue;
+            }
+        }
+
         let param_name = snake_case_name(param.name.as_str());
 
         let param_name = escape_rust_reserved(param_name.as_str());
@@ -518,8 +532,14 @@ fn generate_representation_struct_json(
         lines.push("    fn default() -> Self {\n".to_string());
         lines.push("        Self {\n".to_string());
         for param in &input.params {
-            let param_name = snake_case_name(param.name.as_str());
+            // Check if this param was filtered out
+            if let Some(filter) = config.filter_param.as_ref() {
+                if !filter(param) {
+                    continue;
+                }
+            }
 
+            let param_name = snake_case_name(param.name.as_str());
             let param_name = escape_rust_reserved(param_name.as_str());
 
             lines.push(format!("            {}: Default::default(),\n", param_name));
@@ -1427,6 +1447,13 @@ fn generate_resource_type(
     lines.push(format!("impl {} {{\n", name));
 
     for method in &input.methods {
+        // Check if we should filter this method
+        if let Some(filter) = config.filter_method.as_ref() {
+            if !filter(method) {
+                continue;
+            }
+        }
+
         lines.extend(generate_method(
             method,
             input.id.as_str(),
@@ -1514,6 +1541,16 @@ pub struct Config {
     /// Filter resource types and representations by ID
     /// Return true to include the resource type/representation
     pub filter_by_id: Option<Box<dyn Fn(&str) -> bool>>,
+
+    /// Filter representation params/fields
+    /// Return true to include the field/accessor
+    /// This is used to filter out fields that reference filtered-out types
+    pub filter_param: Option<Box<dyn Fn(&Param) -> bool>>,
+
+    /// Filter methods
+    /// Return true to include the method
+    /// This is used to filter out methods that reference filtered-out types in parameters
+    pub filter_method: Option<Box<dyn Fn(&Method) -> bool>>,
 }
 
 impl Config {
