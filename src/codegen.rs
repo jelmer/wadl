@@ -1510,6 +1510,10 @@ pub struct Config {
 
     /// Check whether a parameter can be nil
     pub nillable_param: Option<Box<dyn Fn(&Param) -> bool>>,
+
+    /// Filter resource types and representations by ID
+    /// Return true to include the resource type/representation
+    pub filter_by_id: Option<Box<dyn Fn(&str) -> bool>>,
 }
 
 impl Config {
@@ -1642,10 +1646,22 @@ pub fn generate(app: &Application, config: &Config) -> String {
     }
 
     for representation in &app.representations {
+        if let Some(filter) = config.filter_by_id.as_ref() {
+            if let Some(id) = representation.id.as_ref() {
+                if !filter(id) {
+                    continue;
+                }
+            }
+        }
         lines.extend(generate_representation(representation, config, &options));
     }
 
     for resource_type in &app.resource_types {
+        if let Some(filter) = config.filter_by_id.as_ref() {
+            if !filter(&resource_type.id) {
+                continue;
+            }
+        }
         lines.extend(generate_resource_type(resource_type, config, &options));
     }
 
