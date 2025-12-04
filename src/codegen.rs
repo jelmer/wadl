@@ -556,7 +556,14 @@ fn generate_representation_struct_json(
     lines
 }
 
-fn supported_representation_def(_d: &RepresentationDef) -> bool {
+fn supported_representation_def(d: &RepresentationDef) -> bool {
+    // Support text/plain responses with plain-style params
+    if let Some(media_type) = &d.media_type {
+        if media_type.essence_str() == "text/plain" {
+            // Check if it has plain-style params (typical for text/plain responses)
+            return d.params.iter().any(|p| p.style == ParamStyle::Plain);
+        }
+    }
     false
 }
 
@@ -573,6 +580,7 @@ fn rust_type_for_response(
     method: &Method,
     input: &Response,
     name: &str,
+    config: &Config,
     options_names: &HashMap<Options, String>,
 ) -> String {
     let container = ParamContainer::Response(method, input);
@@ -585,30 +593,63 @@ fn rust_type_for_response(
         })
         .collect::<Vec<_>>();
     if representations.len() == 1 {
-        assert!(input.params.is_empty());
+        // Allow header params for supported representation definitions (like text/plain)
+        if let Representation::Definition(d) = representations[0] {
+            if !supported_representation_def(d) {
+                // Non-supported representations shouldn't have header params
+                assert!(input.params.is_empty());
+            }
+        } else {
+            assert!(input.params.is_empty());
+        }
         match representations[0] {
             Representation::Reference(ref r) => {
                 let id = r.id().unwrap().to_string();
                 camel_case_name(id.as_str())
             }
             Representation::Definition(ref d) => {
-                assert!(d.params.iter().all(|p| p.style == ParamStyle::Header));
+                // Handle supported representation definitions (like text/plain)
+                if supported_representation_def(d) {
+                    // Check if there are also header-based return values
+                    let mut ret = Vec::new();
+                    for param in &input.params {
+                        let (param_type, _annotations) = param_rust_type(
+                            &container,
+                            param,
+                            config,
+                            resource_type_rust_type,
+                            options_names,
+                        );
+                        ret.push(param_type);
+                    }
 
-                let mut ret = Vec::new();
-                for param in &input.params {
-                    let (param_type, _annotations) = param_rust_type(
-                        &container,
-                        param,
-                        &Config::default(),
-                        resource_type_rust_type,
-                        options_names,
-                    );
-                    ret.push(param_type);
-                }
-                if ret.len() == 1 {
-                    ret.into_iter().next().unwrap()
+                    // Add the String body as the first element (for text/plain, etc.)
+                    ret.insert(0, "String".to_string());
+
+                    if ret.len() == 1 {
+                        ret.into_iter().next().unwrap()
+                    } else {
+                        format!("({})", ret.join(", "))
+                    }
                 } else {
-                    format!("({})", ret.join(", "))
+                    assert!(d.params.iter().all(|p| p.style == ParamStyle::Header));
+
+                    let mut ret = Vec::new();
+                    for param in &input.params {
+                        let (param_type, _annotations) = param_rust_type(
+                            &container,
+                            param,
+                            config,
+                            resource_type_rust_type,
+                            options_names,
+                        );
+                        ret.push(param_type);
+                    }
+                    if ret.len() == 1 {
+                        ret.into_iter().next().unwrap()
+                    } else {
+                        format!("({})", ret.join(", "))
+                    }
                 }
             }
         }
@@ -618,7 +659,7 @@ fn rust_type_for_response(
             let (param_type, _annotations) = param_rust_type(
                 &container,
                 param,
-                &Config::default(),
+                config,
                 resource_type_rust_type,
                 options_names,
             );
@@ -1002,8 +1043,13 @@ fn generate_method_representation(
         ("()".to_string(), None)
     } else {
         assert_eq!(1, input.responses.len(), "expected 1 response for {}", name);
-        let mut return_type =
-            rust_type_for_response(input, &input.responses[0], input.id.as_str(), options_names);
+        let mut return_type = rust_type_for_response(
+            input,
+            &input.responses[0],
+            input.id.as_str(),
+            config,
+            options_names,
+        );
         let map_fn = if let Some((map_type, map_fn)) = config
             .map_type_for_response
             .as_ref()
@@ -1357,7 +1403,26 @@ fn generate_method_representation(
                     media_type
                 ));
                 let t = match representation {
-                    Representation::Definition(_) => None,
+                    Representation::Definition(d) => {
+                        // Handle text/plain responses
+                        if let Some(media_type) = &d.media_type {
+                            if media_type.essence_str() == "text/plain"
+                                && d.params.iter().any(|p| p.style == ParamStyle::Plain)
+                            {
+                                Some((
+                                    format!(
+                                        "resp.text(){}?",
+                                        if config.r#async { ".await" } else { "" }
+                                    ),
+                                    true,
+                                ))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
                     Representation::Reference(r) => {
                         let rt = representation_rust_type(r);
 
@@ -2119,6 +2184,27 @@ This is another test"#;
 
         d.media_type = Some("application/json".parse().unwrap());
         assert!(!supported_representation_def(&d));
+
+        // text/plain without plain params should not be supported
+        d.media_type = Some("text/plain".parse().unwrap());
+        d.params = vec![];
+        assert!(!supported_representation_def(&d));
+
+        // text/plain with plain params should be supported
+        d.params = vec![Param {
+            name: "return".to_string(),
+            r#type: "string".to_string(),
+            style: ParamStyle::Plain,
+            required: false,
+            repeating: false,
+            fixed: None,
+            doc: None,
+            path: None,
+            id: None,
+            links: vec![],
+            options: None,
+        }];
+        assert!(supported_representation_def(&d));
     }
 
     #[test]
@@ -2149,7 +2235,7 @@ This is another test"#;
         };
 
         assert_eq!(
-            rust_type_for_response(&method, &input, "foo", &HashMap::new()),
+            rust_type_for_response(&method, &input, "foo", &Config::default(), &HashMap::new()),
             "String".to_string()
         );
 
@@ -2182,7 +2268,7 @@ This is another test"#;
             },
         ];
         assert_eq!(
-            rust_type_for_response(&method, &input, "foo", &HashMap::new()),
+            rust_type_for_response(&method, &input, "foo", &Config::default(), &HashMap::new()),
             "(String, String)".to_string()
         );
 
@@ -2205,7 +2291,7 @@ This is another test"#;
             options: None,
         }];
         assert_eq!(
-            rust_type_for_response(&method, &input, "foo", &HashMap::new()),
+            rust_type_for_response(&method, &input, "foo", &Config::default(), &HashMap::new()),
             "Foo".to_string()
         );
 
@@ -2228,7 +2314,7 @@ This is another test"#;
             options: None,
         }];
         assert_eq!(
-            rust_type_for_response(&method, &input, "foo", &HashMap::new()),
+            rust_type_for_response(&method, &input, "foo", &Config::default(), &HashMap::new()),
             "Foo".to_string()
         );
 
@@ -2251,7 +2337,7 @@ This is another test"#;
             }],
         }];
         assert_eq!(
-            rust_type_for_response(&method, &input, "foo", &HashMap::new()),
+            rust_type_for_response(&method, &input, "foo", &Config::default(), &HashMap::new()),
             "url::Url".to_string()
         );
     }
@@ -2336,6 +2422,362 @@ This is another test"#;
         "    }\n".to_string(),
         "\n".to_string(),
     ]);
+    }
+
+    #[test]
+    fn test_rust_type_for_response_text_plain() {
+        // Test text/plain response returns String
+        let response = Response {
+            params: vec![],
+            representations: vec![Representation::Definition(RepresentationDef {
+                id: None,
+                media_type: Some("text/plain".parse().unwrap()),
+                element: None,
+                profile: None,
+                docs: vec![],
+                params: vec![Param {
+                    name: "return".to_string(),
+                    r#type: "xsd:string".to_string(),
+                    style: ParamStyle::Plain,
+                    required: false,
+                    repeating: false,
+                    fixed: None,
+                    doc: None,
+                    path: None,
+                    id: None,
+                    links: vec![],
+                    options: None,
+                }],
+            })],
+            ..Default::default()
+        };
+
+        let method = Method {
+            name: "POST".to_string(),
+            id: "test".to_string(),
+            docs: Vec::new(),
+            request: Request::default(),
+            responses: vec![response.clone()],
+        };
+
+        assert_eq!(
+            rust_type_for_response(
+                &method,
+                &response,
+                "test",
+                &Config::default(),
+                &HashMap::new()
+            ),
+            "String".to_string()
+        );
+    }
+
+    #[test]
+    fn test_rust_type_for_response_text_plain_with_headers() {
+        // Test text/plain response with header params returns (String, ...)
+        let response = Response {
+            params: vec![
+                Param {
+                    id: Some("location".to_string()),
+                    name: "Location".to_string(),
+                    r#type: "string".to_string(),
+                    style: ParamStyle::Header,
+                    doc: None,
+                    required: false,
+                    repeating: false,
+                    fixed: None,
+                    path: None,
+                    links: vec![],
+                    options: None,
+                },
+                Param {
+                    id: Some("etag".to_string()),
+                    name: "ETag".to_string(),
+                    r#type: "string".to_string(),
+                    style: ParamStyle::Header,
+                    doc: None,
+                    required: false,
+                    repeating: false,
+                    fixed: None,
+                    path: None,
+                    links: vec![],
+                    options: None,
+                },
+            ],
+            representations: vec![Representation::Definition(RepresentationDef {
+                id: None,
+                media_type: Some("text/plain".parse().unwrap()),
+                element: None,
+                profile: None,
+                docs: vec![],
+                params: vec![Param {
+                    name: "return".to_string(),
+                    r#type: "xsd:string".to_string(),
+                    style: ParamStyle::Plain,
+                    required: false,
+                    repeating: false,
+                    fixed: None,
+                    doc: None,
+                    path: None,
+                    id: None,
+                    links: vec![],
+                    options: None,
+                }],
+            })],
+            ..Default::default()
+        };
+
+        let method = Method {
+            name: "POST".to_string(),
+            id: "test".to_string(),
+            docs: Vec::new(),
+            request: Request::default(),
+            responses: vec![response.clone()],
+        };
+
+        // Should return tuple with String first, then header params (wrapped in Option since required=false)
+        assert_eq!(
+            rust_type_for_response(
+                &method,
+                &response,
+                "test",
+                &Config::default(),
+                &HashMap::new()
+            ),
+            "(String, Option<String>, Option<String>)".to_string()
+        );
+    }
+
+    #[test]
+    fn test_generate_method_text_plain_response() {
+        let input = Method {
+            id: "getArchiveSubscriptionURL".to_string(),
+            name: "POST".to_string(),
+            docs: vec![],
+            request: Request {
+                docs: vec![],
+                params: vec![],
+                representations: vec![],
+            },
+            responses: vec![Response {
+                status: None,
+                docs: vec![],
+                params: vec![],
+                representations: vec![Representation::Definition(RepresentationDef {
+                    id: None,
+                    media_type: Some("text/plain".parse().unwrap()),
+                    element: None,
+                    profile: None,
+                    docs: vec![],
+                    params: vec![Param {
+                        name: "return".to_string(),
+                        r#type: "xsd:string".to_string(),
+                        style: ParamStyle::Plain,
+                        required: false,
+                        repeating: false,
+                        fixed: None,
+                        doc: None,
+                        path: None,
+                        id: None,
+                        links: vec![],
+                        options: None,
+                    }],
+                })],
+            }],
+        };
+        let config = Config::default();
+        let lines = generate_method(&input, "bar", &config, &HashMap::new());
+
+        assert_eq!(lines, vec![
+            "    /// Create the resource.\n".to_string(),
+            "    ///\n".to_string(),
+            "    ///\n".to_string(),
+            "    /// # Returns\n".to_string(),
+            "    /// Returns `String` on success, or an error if the request fails.\n".to_string(),
+            "    pub fn get_archive_subscription_url<'a>(&self, client: &'a dyn wadl::blocking::Client) -> std::result::Result<String, wadl::Error> {\n".to_string(),
+            "        let mut url_ = self.url().clone();\n".to_string(),
+            "\n".to_string(),
+            "        let mut req = client.request(reqwest::Method::POST, url_);\n".to_string(),
+            "        req = req.header(reqwest::header::ACCEPT, \"text/plain\");\n".to_string(),
+            "\n".to_string(),
+            "        let resp = req.send()?;\n".to_string(),
+            "        match resp.status() {\n".to_string(),
+            "            s if s.is_success() => {\n".to_string(),
+            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| x.to_str().unwrap()).map(|x| x.parse().unwrap());\n".to_string(),
+            "                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string(),
+            "                    Some(\"text/plain\") => {\n".to_string(),
+            "                             Ok(resp.text()?)\n".to_string(),
+            "                        }\n".to_string(),
+            "                    _ => { Err(wadl::Error::UnhandledContentType(content_type)) }\n".to_string(),
+            "                }\n".to_string(),
+            "            }\n".to_string(),
+            "            s => Err(wadl::Error::UnhandledStatus(s))\n".to_string(),
+            "        }\n".to_string(),
+            "    }\n".to_string(),
+            "\n".to_string(),
+        ]);
+    }
+
+    #[test]
+    fn test_generate_method_text_plain_response_with_headers() {
+        let input = Method {
+            id: "getTextWithHeaders".to_string(),
+            name: "GET".to_string(),
+            docs: vec![],
+            request: Request {
+                docs: vec![],
+                params: vec![],
+                representations: vec![],
+            },
+            responses: vec![Response {
+                status: None,
+                docs: vec![],
+                params: vec![Param {
+                    id: Some("location".to_string()),
+                    name: "Location".to_string(),
+                    r#type: "string".to_string(),
+                    style: ParamStyle::Header,
+                    doc: None,
+                    required: false,
+                    repeating: false,
+                    fixed: None,
+                    path: None,
+                    links: vec![Link {
+                        relation: None,
+                        reverse_relation: None,
+                        resource_type: Some("http://example.com/#foo".parse().unwrap()),
+                        doc: None,
+                    }],
+                    options: None,
+                }],
+                representations: vec![Representation::Definition(RepresentationDef {
+                    id: None,
+                    media_type: Some("text/plain".parse().unwrap()),
+                    element: None,
+                    profile: None,
+                    docs: vec![],
+                    params: vec![Param {
+                        name: "return".to_string(),
+                        r#type: "xsd:string".to_string(),
+                        style: ParamStyle::Plain,
+                        required: false,
+                        repeating: false,
+                        fixed: None,
+                        doc: None,
+                        path: None,
+                        id: None,
+                        links: vec![],
+                        options: None,
+                    }],
+                })],
+            }],
+        };
+        let config = Config::default();
+        let lines = generate_method(&input, "bar", &config, &HashMap::new());
+
+        // Should return a tuple: (String, Option<Foo>) where Foo is from the resource type link
+        assert_eq!(lines, vec![
+            "    /// Retrieve the resource.\n".to_string(),
+            "    ///\n".to_string(),
+            "    ///\n".to_string(),
+            "    /// # Returns\n".to_string(),
+            "    /// Returns `(String, Option<Foo>)` on success, or an error if the request fails.\n".to_string(),
+            "    pub fn get_text_with_headers<'a>(&self, client: &'a dyn wadl::blocking::Client) -> std::result::Result<(String, Option<Foo>), wadl::Error> {\n".to_string(),
+            "        let mut url_ = self.url().clone();\n".to_string(),
+            "\n".to_string(),
+            "        let mut req = client.request(reqwest::Method::GET, url_);\n".to_string(),
+            "        req = req.header(reqwest::header::ACCEPT, \"text/plain\");\n".to_string(),
+            "\n".to_string(),
+            "        let resp = req.send()?;\n".to_string(),
+            "        match resp.status() {\n".to_string(),
+            "            s if s.is_success() => {\n".to_string(),
+            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| x.to_str().unwrap()).map(|x| x.parse().unwrap());\n".to_string(),
+            "                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string(),
+            "                    Some(\"text/plain\") => {\n".to_string(),
+            "                             Ok((resp.text()?, resp.headers().get(\"Location\").map(|x| Foo(x.to_str().unwrap().parse().unwrap()))))\n".to_string(),
+            "                        }\n".to_string(),
+            "                    _ => { Err(wadl::Error::UnhandledContentType(content_type)) }\n".to_string(),
+            "                }\n".to_string(),
+            "            }\n".to_string(),
+            "            s => Err(wadl::Error::UnhandledStatus(s))\n".to_string(),
+            "        }\n".to_string(),
+            "    }\n".to_string(),
+            "\n".to_string(),
+        ]);
+    }
+
+    #[test]
+    fn test_generate_method_text_plain_response_async() {
+        let input = Method {
+            id: "getArchiveSubscriptionURL".to_string(),
+            name: "POST".to_string(),
+            docs: vec![],
+            request: Request {
+                docs: vec![],
+                params: vec![],
+                representations: vec![],
+            },
+            responses: vec![Response {
+                status: None,
+                docs: vec![],
+                params: vec![],
+                representations: vec![Representation::Definition(RepresentationDef {
+                    id: None,
+                    media_type: Some("text/plain".parse().unwrap()),
+                    element: None,
+                    profile: None,
+                    docs: vec![],
+                    params: vec![Param {
+                        name: "return".to_string(),
+                        r#type: "xsd:string".to_string(),
+                        style: ParamStyle::Plain,
+                        required: false,
+                        repeating: false,
+                        fixed: None,
+                        doc: None,
+                        path: None,
+                        id: None,
+                        links: vec![],
+                        options: None,
+                    }],
+                })],
+            }],
+        };
+        let config = Config {
+            r#async: true,
+            ..Default::default()
+        };
+        let lines = generate_method(&input, "bar", &config, &HashMap::new());
+
+        // Verify it uses .await for async
+        assert_eq!(lines, vec![
+            "    /// Create the resource.\n".to_string(),
+            "    ///\n".to_string(),
+            "    ///\n".to_string(),
+            "    /// # Returns\n".to_string(),
+            "    /// Returns `String` on success, or an error if the request fails.\n".to_string(),
+            "    pub async fn get_archive_subscription_url<'a>(&self, client: &'a dyn wadl::r#async::Client) -> std::result::Result<String, wadl::Error> {\n".to_string(),
+            "        let mut url_ = self.url().clone();\n".to_string(),
+            "\n".to_string(),
+            "        let mut req = client.request(reqwest::Method::POST, url_).await;\n".to_string(),
+            "        req = req.header(reqwest::header::ACCEPT, \"text/plain\");\n".to_string(),
+            "\n".to_string(),
+            "        let resp = req.send().await?;\n".to_string(),
+            "        match resp.status() {\n".to_string(),
+            "            s if s.is_success() => {\n".to_string(),
+            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| x.to_str().unwrap()).map(|x| x.parse().unwrap());\n".to_string(),
+            "                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string(),
+            "                    Some(\"text/plain\") => {\n".to_string(),
+            "                             Ok(resp.text().await?)\n".to_string(),
+            "                        }\n".to_string(),
+            "                    _ => { Err(wadl::Error::UnhandledContentType(content_type)) }\n".to_string(),
+            "                }\n".to_string(),
+            "            }\n".to_string(),
+            "            s => Err(wadl::Error::UnhandledStatus(s))\n".to_string(),
+            "        }\n".to_string(),
+            "    }\n".to_string(),
+            "\n".to_string(),
+        ]);
     }
 
     #[test]
