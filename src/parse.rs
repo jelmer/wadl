@@ -168,6 +168,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     // TODO: find prefix for XMLSchema and use $prefix:string
                     .unwrap_or_else(|| "string".to_string());
                 let path = element.attributes.get("path").cloned();
+                let default = element.attributes.get("default").cloned();
                 let required = element
                     .attributes
                     .get("required")
@@ -201,6 +202,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                     fixed,
                     links,
                     options,
+                    default,
                     doc: if doc.len() == 1 {
                         Some(doc.into_iter().next().unwrap())
                     } else {
