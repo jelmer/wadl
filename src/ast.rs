@@ -62,7 +62,7 @@ impl Application {
     }
 
     /// Iterate over all resources defined in this application.
-    pub fn iter_resources(&self) -> impl Iterator<Item = (Url, &Resource)> {
+    pub fn iter_resources(&self) -> impl Iterator<Item = (Option<Url>, &Resource)> {
         self.resources
             .iter()
             .flat_map(|rs| rs.resources.iter().map(|r| (r.url(rs.base.as_ref()), r)))
@@ -71,7 +71,13 @@ impl Application {
     /// Get a resource by its ID.
     pub fn get_resource_by_href(&self, href: &Url) -> Option<&Resource> {
         self.iter_resources()
-            .find(|(url, _)| url == href)
+            .find(|(url, _)| {
+                if let Some(url) = url {
+                    url == href
+                } else {
+                    false
+                }
+            })
             .map(|(_, r)| r)
     }
 
@@ -269,12 +275,14 @@ pub struct Resource {
 
 impl Resource {
     /// Get the URL of this resource.
-    pub fn url(&self, base_url: Option<&Url>) -> Url {
-        if let Some(base_url) = base_url {
-            base_url.join(self.path.as_ref().unwrap()).unwrap()
-        } else {
-            Url::parse(self.path.as_ref().unwrap()).unwrap()
-        }
+    pub fn url(&self, base_url: Option<&Url>) -> Option<Url> {
+        self.path.as_ref().and_then(|path| {
+            if let Some(base_url) = base_url {
+                base_url.join(path).ok()
+            } else {
+                Url::parse(path).ok()
+            }
+        })
     }
 
     /// Iterate over all parameters defined in this resource.
@@ -307,11 +315,11 @@ fn test_resource_url() {
     };
     assert_eq!(
         r.url(Some(&Url::parse("http://example.com").unwrap())),
-        Url::parse("http://example.com/foo").unwrap()
+        Some(Url::parse("http://example.com/foo").unwrap())
     );
     assert_eq!(
         r.url(Some(&Url::parse("http://example.com/bar").unwrap())),
-        Url::parse("http://example.com/foo").unwrap()
+        Some(Url::parse("http://example.com/foo").unwrap())
     );
 }
 
