@@ -2,6 +2,7 @@
 
 use crate::ast::*;
 use std::collections::HashMap;
+use url::Url;
 
 /// MIME type for XHTML
 pub const XHTML_MIME_TYPE: &str = "application/xhtml+xml";
@@ -1552,6 +1553,112 @@ fn generate_resource_type(
     lines
 }
 
+fn generate_resource(
+    input: &Resource,
+    base_url: Option<&Url>,
+    config: &Config,
+    options_names: &HashMap<Options, String>,
+) -> Vec<String> {
+    let mut lines = vec![];
+
+    // Derive a name from the resource's id or path
+    let name = if let Some(id) = &input.id {
+        camel_case_name(id.as_str())
+    } else if let Some(path) = &input.path {
+        // Convert path to a valid Rust identifier
+        let path = path.trim_start_matches('/');
+        let path = path.trim_end_matches('/');
+        camel_case_name(path)
+    } else {
+        return lines; // Skip resources without id or path
+    };
+
+    for doc in &input.docs {
+        lines.extend(generate_doc(doc, 0, config));
+    }
+
+    let visibility = config
+        .resource_type_visibility
+        .as_ref()
+        .and_then(|x| x(name.as_str()))
+        .unwrap_or("pub".to_string());
+
+    lines.push(format!(
+        "{}struct {} (reqwest::Url);\n",
+        if visibility.is_empty() {
+            "".to_string()
+        } else {
+            format!("{} ", visibility)
+        },
+        name
+    ));
+
+    lines.push("\n".to_string());
+
+    lines.push(format!("impl {} {{\n", name));
+
+    // Generate constructor
+    if let Some(resource_url) = input.url(base_url) {
+        lines.push(format!(
+            "    pub fn new() -> Self {{\n        Self(reqwest::Url::parse(\"{}\").unwrap())\n    }}\n",
+            resource_url
+        ));
+        lines.push("\n".to_string());
+
+        for method in &input.methods {
+            // Check if we should filter this method
+            if let Some(filter) = config.filter_method.as_ref() {
+                if !filter(method) {
+                    continue;
+                }
+            }
+
+            let parent_id = input.id.as_deref().unwrap_or(&name);
+            lines.extend(generate_method(method, parent_id, config, options_names));
+        }
+
+        lines.push("}\n".to_string());
+        lines.push("\n".to_string());
+        lines.push(format!("impl wadl::Resource for {} {{\n", name));
+        lines.push("    fn url(&self) -> &reqwest::Url {\n".to_string());
+        lines.push("        &self.0\n".to_string());
+        lines.push("    }\n".to_string());
+        lines.push("}\n".to_string());
+        lines.push("\n".to_string());
+
+        // Generate code for subresources recursively
+        for subresource in &input.subresources {
+            lines.extend(generate_resource(
+                subresource,
+                Some(&resource_url),
+                config,
+                options_names,
+            ));
+        }
+    }
+
+    lines
+}
+
+fn generate_resources(
+    resources: &Resources,
+    config: &Config,
+    options_names: &HashMap<Options, String>,
+) -> Vec<String> {
+    let mut lines = vec![];
+
+    for resource in &resources.resources {
+        lines.extend(generate_resource(
+            resource,
+            resources.base.as_ref(),
+            config,
+            options_names,
+        ));
+    }
+
+    lines
+}
+
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
 /// Configuration for code generation
@@ -1779,6 +1886,10 @@ pub fn generate(app: &Application, config: &Config) -> String {
             }
         }
         lines.extend(generate_resource_type(resource_type, config, &options));
+    }
+
+    for resources in &app.resources {
+        lines.extend(generate_resources(resources, config, &options));
     }
 
     lines.concat()
@@ -2815,6 +2926,193 @@ This is another test"#;
                 "}\n".to_string(),
                 "\n".to_string(),
                 "impl wadl::Resource for Foo {\n".to_string(),
+                "    fn url(&self) -> &reqwest::Url {\n".to_string(),
+                "        &self.0\n".to_string(),
+                "    }\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_generate_resource_with_path() {
+        let input = Resource {
+            id: None,
+            path: Some("test-path".to_string()),
+            r#type: vec![],
+            docs: vec![],
+            methods: vec![],
+            query_type: mime::APPLICATION_JSON,
+            params: vec![],
+            subresources: vec![],
+        };
+        let base_url = Url::parse("http://example.com/api").unwrap();
+        let config = Config::default();
+        let lines = generate_resource(&input, Some(&base_url), &config, &HashMap::new());
+
+        assert_eq!(
+            lines,
+            vec![
+                "pub struct TestPath (reqwest::Url);\n".to_string(),
+                "\n".to_string(),
+                "impl TestPath {\n".to_string(),
+                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/test-path\").unwrap())\n    }\n".to_string(),
+                "\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+                "impl wadl::Resource for TestPath {\n".to_string(),
+                "    fn url(&self) -> &reqwest::Url {\n".to_string(),
+                "        &self.0\n".to_string(),
+                "    }\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_generate_resource_with_id() {
+        let input = Resource {
+            id: Some("my-resource".to_string()),
+            path: Some("path".to_string()),
+            r#type: vec![],
+            docs: vec![],
+            methods: vec![],
+            query_type: mime::APPLICATION_JSON,
+            params: vec![],
+            subresources: vec![],
+        };
+        let base_url = Url::parse("http://example.com").unwrap();
+        let config = Config::default();
+        let lines = generate_resource(&input, Some(&base_url), &config, &HashMap::new());
+
+        assert_eq!(
+            lines,
+            vec![
+                "pub struct MyResource (reqwest::Url);\n".to_string(),
+                "\n".to_string(),
+                "impl MyResource {\n".to_string(),
+                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/path\").unwrap())\n    }\n".to_string(),
+                "\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+                "impl wadl::Resource for MyResource {\n".to_string(),
+                "    fn url(&self) -> &reqwest::Url {\n".to_string(),
+                "        &self.0\n".to_string(),
+                "    }\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_generate_resource_without_id_or_path() {
+        let input = Resource {
+            id: None,
+            path: None,
+            r#type: vec![],
+            docs: vec![],
+            methods: vec![],
+            query_type: mime::APPLICATION_JSON,
+            params: vec![],
+            subresources: vec![],
+        };
+        let config = Config::default();
+        let lines = generate_resource(&input, None, &config, &HashMap::new());
+
+        // Should return empty when no id or path
+        assert_eq!(lines, Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_generate_resources() {
+        let input = Resources {
+            base: Some(Url::parse("http://api.example.com").unwrap()),
+            resources: vec![Resource {
+                id: None,
+                path: Some("users".to_string()),
+                r#type: vec![],
+                docs: vec![],
+                methods: vec![],
+                query_type: mime::APPLICATION_JSON,
+                params: vec![],
+                subresources: vec![],
+            }],
+        };
+        let config = Config::default();
+        let lines = generate_resources(&input, &config, &HashMap::new());
+
+        assert_eq!(
+            lines,
+            vec![
+                "pub struct Users (reqwest::Url);\n".to_string(),
+                "\n".to_string(),
+                "impl Users {\n".to_string(),
+                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://api.example.com/users\").unwrap())\n    }\n".to_string(),
+                "\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+                "impl wadl::Resource for Users {\n".to_string(),
+                "    fn url(&self) -> &reqwest::Url {\n".to_string(),
+                "        &self.0\n".to_string(),
+                "    }\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_generate_resource_with_subresources() {
+        let input = Resource {
+            id: Some("parent".to_string()),
+            path: Some("parent".to_string()),
+            r#type: vec![],
+            docs: vec![],
+            methods: vec![],
+            query_type: mime::APPLICATION_JSON,
+            params: vec![],
+            subresources: vec![Resource {
+                id: Some("child".to_string()),
+                path: Some("child".to_string()),
+                r#type: vec![],
+                docs: vec![],
+                methods: vec![],
+                query_type: mime::APPLICATION_JSON,
+                params: vec![],
+                subresources: vec![],
+            }],
+        };
+        let base_url = Url::parse("http://example.com").unwrap();
+        let config = Config::default();
+        let lines = generate_resource(&input, Some(&base_url), &config, &HashMap::new());
+
+        assert_eq!(
+            lines,
+            vec![
+                "pub struct Parent (reqwest::Url);\n".to_string(),
+                "\n".to_string(),
+                "impl Parent {\n".to_string(),
+                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/parent\").unwrap())\n    }\n".to_string(),
+                "\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+                "impl wadl::Resource for Parent {\n".to_string(),
+                "    fn url(&self) -> &reqwest::Url {\n".to_string(),
+                "        &self.0\n".to_string(),
+                "    }\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+                "pub struct Child (reqwest::Url);\n".to_string(),
+                "\n".to_string(),
+                "impl Child {\n".to_string(),
+                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/child\").unwrap())\n    }\n".to_string(),
+                "\n".to_string(),
+                "}\n".to_string(),
+                "\n".to_string(),
+                "impl wadl::Resource for Child {\n".to_string(),
                 "    fn url(&self) -> &reqwest::Url {\n".to_string(),
                 "        &self.0\n".to_string(),
                 "    }\n".to_string(),
