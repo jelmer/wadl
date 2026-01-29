@@ -1009,6 +1009,13 @@ fn generate_method_wadl(input: &Method, parent_id: &str, config: &Config) -> Vec
     lines
 }
 
+static DEFAULT_RESPONSE: Response = Response {
+    docs: vec![],
+    params: vec![],
+    status: Some(200),
+    representations: vec![],
+};
+
 /// Generate Rust code for a WADL method that handles representations.
 ///
 /// This function creates the actual implementation of HTTP methods (GET, POST, PUT, DELETE, etc.)
@@ -1044,19 +1051,15 @@ fn generate_method_representation(
         ("()".to_string(), None)
     } else {
         // Find the success response(s) - those with status 2xx or no status specified
-        let success_responses: Vec<&Response> = input
+        let mut success_responses: Vec<&Response> = input
             .responses
             .iter()
             .filter(|r| r.status.is_none() || (200..300).contains(&r.status.unwrap()))
             .collect();
 
-        assert_eq!(
-            1,
-            success_responses.len(),
-            "expected 1 success response for {}, found {}",
-            name,
-            success_responses.len()
-        );
+        if success_responses.is_empty() {
+            success_responses.push(&DEFAULT_RESPONSE);
+        }
 
         let mut return_type = rust_type_for_response(
             input,
