@@ -1042,10 +1042,24 @@ fn generate_method_representation(
     let (ret_type, map_fn) = if input.responses.is_empty() {
         ("()".to_string(), None)
     } else {
-        assert_eq!(1, input.responses.len(), "expected 1 response for {}", name);
+        // Find the success response(s) - those with status 2xx or no status specified
+        let success_responses: Vec<&Response> = input
+            .responses
+            .iter()
+            .filter(|r| r.status.is_none() || (200..300).contains(&r.status.unwrap()))
+            .collect();
+
+        assert_eq!(
+            1,
+            success_responses.len(),
+            "expected 1 success response for {}, found {}",
+            name,
+            success_responses.len()
+        );
+
         let mut return_type = rust_type_for_response(
             input,
-            &input.responses[0],
+            success_responses[0],
             input.id.as_str(),
             config,
             options_names,
