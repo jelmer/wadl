@@ -997,7 +997,7 @@ fn generate_method_wadl(input: &Method, parent_id: &str, config: &Config) -> Vec
         lines.push("        let wadl: wadl::ast::Application = req.send()?.error_for_status()?.text()?.parse()?;\n".to_string());
     }
     lines.push(
-        "        let resource = wadl.get_resource_by_href(self.url()).unwrap();\n".to_string(),
+        "        let resource = wadl.get_resource_by_href(self.url()).ok_or(wadl::Error::ResourceNotFound)?;\n".to_string(),
     );
 
     lines.push("        Ok(resource.clone())\n".to_string());
@@ -1378,7 +1378,7 @@ fn generate_method_representation(
                         if !config.nillable(param) {
                             return_types.push((
                                 format!(
-                                    "{}(resp.headers().get(\"{}\")?.to_str()?.parse().unwrap())",
+                                    "{}(resp.headers().get(\"{}\")?.to_str()?.parse()?)",
                                     resource_type_rust_type(r),
                                     param.name
                                 ),
@@ -1386,7 +1386,7 @@ fn generate_method_representation(
                             ));
                         } else {
                             return_types.push((format!(
-                                "resp.headers().get(\"{}\").map(|x| {}(x.to_str().unwrap().parse().unwrap()))",
+                                "resp.headers().get(\"{}\").map(|x| -> Result<_, wadl::Error> {{ Ok({}(x.to_str()?.parse()?)) }}).transpose()?",
                                 param.name,
                                 resource_type_rust_type(r),
                             ), false));
@@ -1415,7 +1415,7 @@ fn generate_method_representation(
         }
 
         if !response.representations.is_empty() {
-            lines.push("                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| x.to_str().unwrap()).map(|x| x.parse().unwrap());\n".to_string());
+            lines.push("                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string());
             lines.push(
                 "                match content_type.as_ref().map(|x| x.essence_str()) {\n"
                     .to_string(),
@@ -1615,7 +1615,7 @@ fn generate_resource(
     // Generate constructor
     if let Some(resource_url) = input.url(base_url) {
         lines.push(format!(
-            "    pub fn new() -> Self {{\n        Self(reqwest::Url::parse(\"{}\").unwrap())\n    }}\n",
+            "    pub fn new() -> Self {{\n        Self(reqwest::Url::parse(\"{}\").expect(\"Valid URL from WADL\"))\n    }}\n",
             resource_url
         ));
         lines.push("\n".to_string());
@@ -2743,7 +2743,7 @@ This is another test"#;
             "        let resp = req.send()?;\n".to_string(),
             "        match resp.status() {\n".to_string(),
             "            s if s.is_success() => {\n".to_string(),
-            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| x.to_str().unwrap()).map(|x| x.parse().unwrap());\n".to_string(),
+            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string(),
             "                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string(),
             "                    Some(\"text/plain\") => {\n".to_string(),
             "                             Ok(resp.text()?)\n".to_string(),
@@ -2831,10 +2831,10 @@ This is another test"#;
             "        let resp = req.send()?;\n".to_string(),
             "        match resp.status() {\n".to_string(),
             "            s if s.is_success() => {\n".to_string(),
-            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| x.to_str().unwrap()).map(|x| x.parse().unwrap());\n".to_string(),
+            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string(),
             "                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string(),
             "                    Some(\"text/plain\") => {\n".to_string(),
-            "                             Ok((resp.text()?, resp.headers().get(\"Location\").map(|x| Foo(x.to_str().unwrap().parse().unwrap()))))\n".to_string(),
+            "                             Ok((resp.text()?, resp.headers().get(\"Location\").map(|x| -> Result<_, wadl::Error> { Ok(Foo(x.to_str()?.parse()?)) }).transpose()?))\n".to_string(),
             "                        }\n".to_string(),
             "                    _ => { Err(wadl::Error::UnhandledContentType(content_type)) }\n".to_string(),
             "                }\n".to_string(),
@@ -2905,7 +2905,7 @@ This is another test"#;
             "        let resp = req.send().await?;\n".to_string(),
             "        match resp.status() {\n".to_string(),
             "            s if s.is_success() => {\n".to_string(),
-            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| x.to_str().unwrap()).map(|x| x.parse().unwrap());\n".to_string(),
+            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string(),
             "                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string(),
             "                    Some(\"text/plain\") => {\n".to_string(),
             "                             Ok(resp.text().await?)\n".to_string(),
@@ -2972,7 +2972,7 @@ This is another test"#;
                 "pub struct TestPath (reqwest::Url);\n".to_string(),
                 "\n".to_string(),
                 "impl TestPath {\n".to_string(),
-                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/test-path\").unwrap())\n    }\n".to_string(),
+                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/test-path\").expect(\"Valid URL from WADL\"))\n    }\n".to_string(),
                 "\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
@@ -3008,7 +3008,7 @@ This is another test"#;
                 "pub struct MyResource (reqwest::Url);\n".to_string(),
                 "\n".to_string(),
                 "impl MyResource {\n".to_string(),
-                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/path\").unwrap())\n    }\n".to_string(),
+                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/path\").expect(\"Valid URL from WADL\"))\n    }\n".to_string(),
                 "\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
@@ -3085,7 +3085,7 @@ This is another test"#;
                 "pub struct Users (reqwest::Url);\n".to_string(),
                 "\n".to_string(),
                 "impl Users {\n".to_string(),
-                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://api.example.com/users\").unwrap())\n    }\n".to_string(),
+                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://api.example.com/users\").expect(\"Valid URL from WADL\"))\n    }\n".to_string(),
                 "\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
@@ -3130,7 +3130,7 @@ This is another test"#;
                 "pub struct Parent (reqwest::Url);\n".to_string(),
                 "\n".to_string(),
                 "impl Parent {\n".to_string(),
-                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/parent\").unwrap())\n    }\n".to_string(),
+                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/parent\").expect(\"Valid URL from WADL\"))\n    }\n".to_string(),
                 "\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
@@ -3143,7 +3143,7 @@ This is another test"#;
                 "pub struct Child (reqwest::Url);\n".to_string(),
                 "\n".to_string(),
                 "impl Child {\n".to_string(),
-                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/child\").unwrap())\n    }\n".to_string(),
+                "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/child\").expect(\"Valid URL from WADL\"))\n    }\n".to_string(),
                 "\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
