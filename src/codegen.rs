@@ -1568,7 +1568,11 @@ fn generate_resource(
         // Convert path to a valid Rust identifier
         let path = path.trim_start_matches('/');
         let path = path.trim_end_matches('/');
-        camel_case_name(path)
+        let name = camel_case_name(path);
+        if name.is_empty() {
+            return lines; // Skip resources with empty path (just type references)
+        }
+        name
     } else {
         return lines; // Skip resources without id or path
     };
@@ -3023,6 +3027,26 @@ This is another test"#;
         let lines = generate_resource(&input, None, &config, &HashMap::new());
 
         // Should return empty when no id or path
+        assert_eq!(lines, Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_generate_resource_with_empty_path() {
+        let input = Resource {
+            id: None,
+            path: Some("/".to_string()),
+            r#type: vec![],
+            docs: vec![],
+            methods: vec![],
+            query_type: mime::APPLICATION_JSON,
+            params: vec![],
+            subresources: vec![],
+        };
+        let base_url = Url::parse("http://example.com").unwrap();
+        let config = Config::default();
+        let lines = generate_resource(&input, Some(&base_url), &config, &HashMap::new());
+
+        // Should return empty when path becomes empty after trimming
         assert_eq!(lines, Vec::<String>::new());
     }
 
