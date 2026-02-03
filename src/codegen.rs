@@ -1061,6 +1061,14 @@ fn generate_method_representation(
             success_responses.push(&DEFAULT_RESPONSE);
         }
 
+        assert_eq!(
+            1,
+            success_responses.len(),
+            "expected 1 success response for {}, found {}",
+            name,
+            success_responses.len()
+        );
+
         let mut return_type = rust_type_for_response(
             input,
             success_responses[0],
@@ -3123,5 +3131,150 @@ This is another test"#;
                 "\n".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn test_method_with_no_responses() {
+        // Test that a method with no responses uses DEFAULT_RESPONSE and passes assertion
+        let method = Method {
+            id: "test-method".to_string(),
+            name: "GET".to_string(),
+            docs: vec![],
+            request: Request {
+                docs: vec![],
+                params: vec![],
+                representations: vec![],
+            },
+            responses: vec![],
+        };
+
+        let config = Config::default();
+        let result = generate_method_representation(&method, "parent", &config, &HashMap::new());
+
+        // Should succeed without panicking
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_method_with_one_success_response() {
+        // Test that a method with one success response (200) passes assertion
+        let method = Method {
+            id: "test-method".to_string(),
+            name: "GET".to_string(),
+            docs: vec![],
+            request: Request {
+                docs: vec![],
+                params: vec![],
+                representations: vec![],
+            },
+            responses: vec![Response {
+                docs: vec![],
+                params: vec![],
+                status: Some(200),
+                representations: vec![],
+            }],
+        };
+
+        let config = Config::default();
+        let result = generate_method_representation(&method, "parent", &config, &HashMap::new());
+
+        // Should succeed without panicking
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_method_with_success_response_no_status() {
+        // Test that a method with one response (no status specified) passes assertion
+        let method = Method {
+            id: "test-method".to_string(),
+            name: "GET".to_string(),
+            docs: vec![],
+            request: Request {
+                docs: vec![],
+                params: vec![],
+                representations: vec![],
+            },
+            responses: vec![Response {
+                docs: vec![],
+                params: vec![],
+                status: None,
+                representations: vec![],
+            }],
+        };
+
+        let config = Config::default();
+        let result = generate_method_representation(&method, "parent", &config, &HashMap::new());
+
+        // Should succeed without panicking
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_method_with_success_and_error_responses() {
+        // Test that a method with one success response and one error response passes assertion
+        let method = Method {
+            id: "test-method".to_string(),
+            name: "GET".to_string(),
+            docs: vec![],
+            request: Request {
+                docs: vec![],
+                params: vec![],
+                representations: vec![],
+            },
+            responses: vec![
+                Response {
+                    docs: vec![],
+                    params: vec![],
+                    status: Some(200),
+                    representations: vec![],
+                },
+                Response {
+                    docs: vec![],
+                    params: vec![],
+                    status: Some(400),
+                    representations: vec![],
+                },
+            ],
+        };
+
+        let config = Config::default();
+        let result = generate_method_representation(&method, "parent", &config, &HashMap::new());
+
+        // Should succeed without panicking - only success responses are counted
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "expected 1 success response")]
+    fn test_method_with_multiple_success_responses_panics() {
+        // Test that a method with multiple success responses (200 and 201) triggers assertion
+        let method = Method {
+            id: "test-method".to_string(),
+            name: "GET".to_string(),
+            docs: vec![],
+            request: Request {
+                docs: vec![],
+                params: vec![],
+                representations: vec![],
+            },
+            responses: vec![
+                Response {
+                    docs: vec![],
+                    params: vec![],
+                    status: Some(200),
+                    representations: vec![],
+                },
+                Response {
+                    docs: vec![],
+                    params: vec![],
+                    status: Some(201),
+                    representations: vec![],
+                },
+            ],
+        };
+
+        let config = Config::default();
+        // This should panic with "expected 1 success response for test_method, found 2"
+        generate_method_representation(&method, "parent", &config, &HashMap::new());
     }
 }
