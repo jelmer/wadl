@@ -133,6 +133,15 @@ pub enum Error {
 
     /// An I/O error occurred.
     Io(std::io::Error),
+
+    /// A header value could not be converted to a string.
+    InvalidHeaderValue(reqwest::header::ToStrError),
+
+    /// A MIME type could not be parsed.
+    Mime(mime::FromStrError),
+
+    /// A resource was not found in the WADL.
+    ResourceNotFound,
 }
 
 impl From<std::io::Error> for Error {
@@ -159,6 +168,9 @@ impl std::fmt::Display for Error {
             Error::UnhandledContentType(None) => write!(f, "No content type"),
             Error::UnhandledStatus(s) => write!(f, "Unhandled status: {}", s),
             Error::Io(err) => write!(f, "IO error: {}", err),
+            Error::InvalidHeaderValue(err) => write!(f, "Invalid header value: {}", err),
+            Error::Mime(err) => write!(f, "MIME type error: {}", err),
+            Error::ResourceNotFound => write!(f, "Resource not found in WADL"),
         }
     }
 }
@@ -171,6 +183,8 @@ impl std::error::Error for Error {
             Error::Json(err) => Some(err),
             Error::Wadl(err) => Some(err),
             Error::Io(err) => Some(err),
+            Error::InvalidHeaderValue(err) => Some(err),
+            Error::Mime(err) => Some(err),
             _ => None,
         }
     }
@@ -191,5 +205,17 @@ impl From<url::ParseError> for Error {
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
         Error::Wadl(err)
+    }
+}
+
+impl From<reqwest::header::ToStrError> for Error {
+    fn from(err: reqwest::header::ToStrError) -> Self {
+        Error::InvalidHeaderValue(err)
+    }
+}
+
+impl From<mime::FromStrError> for Error {
+    fn from(err: mime::FromStrError) -> Self {
+        Error::Mime(err)
     }
 }
