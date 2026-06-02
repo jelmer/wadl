@@ -363,6 +363,13 @@ fn simple_type_rust_type(
         panic!("Unknown type {} for param {}", type_name, param.name);
     }
 
+    // A type containing `::` is a fully-qualified Rust path (e.g. supplied
+    // via a fixup), not a WADL/XSD type with a namespace prefix. Pass it
+    // through verbatim so callers can map a param onto an arbitrary type.
+    if type_name.namespace.is_none() && type_name.name.contains("::") {
+        return (type_name.name.clone(), vec![]);
+    }
+
     let rust_type = match type_name.name.as_str() {
         "date" => "chrono::NaiveDate",
         "dateTime" => "chrono::DateTime<chrono::Utc>",
@@ -2412,6 +2419,20 @@ This is another test"#;
             &HashMap::new(),
         );
         assert_eq!(param_type, "chrono::NaiveDate");
+
+        // A fully-qualified Rust path is passed through verbatim.
+        param.r#type = Some(TypeName {
+            namespace: None,
+            name: "some_crate::types::Custom<bool>".to_string(),
+        });
+        let (param_type, _) = param_rust_type(
+            &container,
+            &param,
+            &Config::default(),
+            resource_type_rust_type,
+            &HashMap::new(),
+        );
+        assert_eq!(param_type, "some_crate::types::Custom<bool>");
 
         param.r#type = None;
         param.options = Some(Options::from(vec!["one".to_string(), "two".to_string()]));
