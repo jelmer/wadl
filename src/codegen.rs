@@ -1492,7 +1492,7 @@ fn generate_method_representation(
         }
 
         if !response.representations.is_empty() {
-            lines.push("                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string());
+            lines.push("                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> std::result::Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string());
             lines.push(
                 "                match content_type.as_ref().map(|x| x.essence_str()) {\n"
                     .to_string(),
@@ -3073,7 +3073,7 @@ This is another test"#;
             "        let resp = req.send()?;\n".to_string(),
             "        match resp.status() {\n".to_string(),
             "            s if s.is_success() => {\n".to_string(),
-            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string(),
+            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> std::result::Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string(),
             "                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string(),
             "                    Some(\"text/plain\") => {\n".to_string(),
             "                             Ok(resp.text()?)\n".to_string(),
@@ -3161,7 +3161,7 @@ This is another test"#;
             "        let resp = req.send()?;\n".to_string(),
             "        match resp.status() {\n".to_string(),
             "            s if s.is_success() => {\n".to_string(),
-            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string(),
+            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> std::result::Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string(),
             "                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string(),
             "                    Some(\"text/plain\") => {\n".to_string(),
             "                        let header_0 = resp.headers().get(\"Location\").map(|x| -> std::result::Result<_, wadl::Error> { Ok(Foo(x.to_str()?.parse()?)) }).transpose()?;\n".to_string(),
@@ -3293,7 +3293,7 @@ This is another test"#;
             "        let resp = req.send().await?;\n".to_string(),
             "        match resp.status() {\n".to_string(),
             "            s if s.is_success() => {\n".to_string(),
-            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string(),
+            "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> std::result::Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string(),
             "                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string(),
             "                    Some(\"text/plain\") => {\n".to_string(),
             "                             Ok(resp.text().await?)\n".to_string(),
