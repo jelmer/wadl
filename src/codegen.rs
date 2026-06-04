@@ -140,6 +140,7 @@ fn generate_resource_type_ref_accessors(
     input: &ResourceTypeRef,
     param: &Param,
     config: &Config,
+    container: Option<&ParamContainer>,
 ) -> Vec<String> {
     let mut lines = vec![];
     if let Some(id) = input.id() {
@@ -166,7 +167,7 @@ fn generate_resource_type_ref_accessors(
         } else {
             None
         };
-        if config.nillable(param) {
+        if config.nillable_in(container, param) {
             ret_type = format!("Option<{}>", ret_type);
         }
         let accessor_name = if let Some(rename_fn) = config.param_accessor_rename.as_ref() {
@@ -194,7 +195,7 @@ fn generate_resource_type_ref_accessors(
             accessor_name,
             ret_type
         ));
-        if !config.nillable(param) {
+        if !config.nillable_in(container, param) {
             if let Some(map_fn) = map_fn {
                 lines.push(format!(
                     "        {}({}(self.{}.clone())\n",
@@ -239,7 +240,7 @@ fn generate_resource_type_ref_accessors(
             ret_type
         ));
 
-        if !config.nillable(param) {
+        if !config.nillable_in(container, param) {
             lines.push(format!(
                 "        self.{} = value.url().clone();\n",
                 field_name
@@ -302,6 +303,7 @@ fn generate_representation(
                     r,
                     param,
                     config,
+                    Some(&ParamContainer::Representation(input)),
                 ));
             }
         }
@@ -430,7 +432,7 @@ fn param_rust_type(
         param_type = format!("Vec<{}>", param_type);
     }
 
-    if config.nillable(param) {
+    if config.nillable_in(Some(container), param) {
         param_type = format!("Option<{}>", param_type);
     }
 
@@ -506,7 +508,10 @@ fn generate_representation_struct_json(
         ));
     }
 
-    let derive_default = input.params.iter().all(|x| config.nillable(x));
+    let derive_default = input
+        .params
+        .iter()
+        .all(|x| config.nillable_in(Some(&container), x));
 
     lines.push(
         "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n".to_string(),
@@ -1465,7 +1470,7 @@ fn generate_method_representation(
             }
             let value = header_value_expr("x", &container, param, config);
             let get = format!("resp.headers().get(\"{}\")", param.name);
-            if config.nillable(param) {
+            if config.nillable_in(Some(&container), param) {
                 return_types.push((
                     format!(
                         "{}.map(|x| -> std::result::Result<_, wadl::Error> {{ Ok({}) }}).transpose()?",
@@ -1840,8 +1845,11 @@ pub struct Config {
     /// Convert a string to a multipart Part, given a type name and value
     pub convert_to_multipart: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
 
-    /// Check whether a parameter can be nil
-    pub nillable_param: Option<Box<dyn Fn(&Param) -> bool>>,
+    /// Check whether a parameter can be nil.
+    ///
+    /// The container, when known, lets callers vary the decision by context
+    /// (e.g. treat all representation/response fields as nullable).
+    pub nillable_param: Option<Box<dyn Fn(Option<&ParamContainer>, &Param) -> bool>>,
 
     /// Filter resource types and representations by ID
     /// Return true to include the resource type/representation
@@ -1868,10 +1876,15 @@ impl Config {
         }
     }
 
-    /// Check whether the parameter is can be nil
+    /// Check whether the parameter can be nil.
     pub fn nillable(&self, param: &Param) -> bool {
+        self.nillable_in(None, param)
+    }
+
+    /// Check whether the parameter can be nil, given its container.
+    pub fn nillable_in(&self, container: Option<&ParamContainer>, param: &Param) -> bool {
         if let Some(nillable_param) = self.nillable_param.as_ref() {
-            nillable_param(param)
+            nillable_param(container, param)
         } else {
             !param.required
         }
@@ -2483,6 +2496,47 @@ This is another test"#;
             &HashMap::new(),
         );
         assert_eq!(param_type, "Vec<u8>");
+    }
+
+    #[test]
+    fn test_nillable_param_container() {
+        // A nillable_param callback can use the container to vary the
+        // decision: here, treat every representation field as nullable
+        // regardless of its `required` flag, while leaving others alone.
+        let config = Config {
+            nillable_param: Some(Box::new(|container, param| {
+                matches!(container, Some(ParamContainer::Representation(_))) || !param.required
+            })),
+            ..Default::default()
+        };
+
+        let param = Param {
+            name: "description".to_string(),
+            r#type: None,
+            required: true,
+            repeating: false,
+            fixed: None,
+            doc: None,
+            options: None,
+            id: None,
+            style: ParamStyle::Plain,
+            path: None,
+            links: vec![],
+        };
+
+        let rep = RepresentationDef {
+            media_type: None,
+            element: None,
+            profile: None,
+            docs: vec![],
+            id: Some("project-full".to_string()),
+            params: vec![param.clone()],
+        };
+
+        // Required, but inside a representation -> nullable.
+        assert!(config.nillable_in(Some(&ParamContainer::Representation(&rep)), &param));
+        // Required, no container -> falls back to !required (not nullable).
+        assert!(!config.nillable(&param));
     }
 
     #[test]
