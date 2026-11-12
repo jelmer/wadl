@@ -142,6 +142,12 @@ pub enum Error {
 
     /// A resource was not found in the WADL.
     ResourceNotFound,
+
+    /// A required response header was missing.
+    MissingHeader(String),
+
+    /// A response header value could not be parsed.
+    InvalidHeader(String, Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl From<std::io::Error> for Error {
@@ -171,6 +177,10 @@ impl std::fmt::Display for Error {
             Error::InvalidHeaderValue(err) => write!(f, "Invalid header value: {}", err),
             Error::Mime(err) => write!(f, "MIME type error: {}", err),
             Error::ResourceNotFound => write!(f, "Resource not found in WADL"),
+            Error::MissingHeader(name) => write!(f, "Missing response header: {}", name),
+            Error::InvalidHeader(name, err) => {
+                write!(f, "Invalid value for header {}: {}", name, err)
+            }
         }
     }
 }
@@ -185,6 +195,7 @@ impl std::error::Error for Error {
             Error::Io(err) => Some(err),
             Error::InvalidHeaderValue(err) => Some(err),
             Error::Mime(err) => Some(err),
+            Error::InvalidHeader(_, err) => Some(err.as_ref()),
             _ => None,
         }
     }
