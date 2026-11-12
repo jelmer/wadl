@@ -340,16 +340,28 @@ fn simple_type_rust_type(
         return (tn, vec![]);
     }
 
-    match type_name.split_once(':').map_or(type_name, |(_, n)| n) {
-        "date" => ("chrono::NaiveDate".to_string(), vec![]),
-        "dateTime" => ("chrono::DateTime<chrono::Utc>".to_string(), vec![]),
-        "time" => ("(chrono::Time".to_string(), vec![]),
-        "int" => ("i32".to_string(), vec![]),
-        "string" => ("String".to_string(), vec![]),
-        "binary" => ("Vec<u8>".to_string(), vec![]),
-        "boolean" => ("bool".to_string(), vec![]),
+    let rust_type = match type_name.split_once(':').map_or(type_name, |(_, n)| n) {
+        "date" => "chrono::NaiveDate",
+        "dateTime" => "chrono::DateTime<chrono::Utc>",
+        "time" => "chrono::NaiveTime",
+        "string" | "normalizedString" | "token" | "language" | "Name" | "NCName" | "NMTOKEN"
+        | "ID" | "IDREF" | "ENTITY" => "String",
+        "anyURI" => "url::Url",
+        "boolean" => "bool",
+        "byte" => "i8",
+        "short" => "i16",
+        "int" => "i32",
+        "long" | "integer" | "negativeInteger" | "nonPositiveInteger" => "i64",
+        "unsignedByte" => "u8",
+        "unsignedShort" => "u16",
+        "unsignedInt" => "u32",
+        "unsignedLong" | "nonNegativeInteger" | "positiveInteger" => "u64",
+        "float" => "f32",
+        "double" | "decimal" => "f64",
+        "binary" => "Vec<u8>",
         u => panic!("Unknown type: {}", u),
-    }
+    };
+    (rust_type.to_string(), vec![])
 }
 
 fn param_rust_type(
@@ -2089,6 +2101,56 @@ This is another test"#;
         use std::str::FromStr;
         let rt = ResourceTypeRef::from_str("https://api.launchpad.net/1.0/#person").unwrap();
         assert_eq!(resource_type_rust_type(&rt), "Person");
+    }
+
+    #[test]
+    fn test_simple_type_rust_type_xsd() {
+        let mut param = Param {
+            name: "p".to_string(),
+            r#type: String::new(),
+            required: true,
+            repeating: false,
+            fixed: None,
+            doc: None,
+            options: None,
+            id: None,
+            style: ParamStyle::Plain,
+            path: None,
+            links: vec![],
+        };
+        let rd = RepresentationDef::default();
+        let container = ParamContainer::Representation(&rd);
+        let mut got = vec![];
+        for t in [
+            "xsd:time",
+            "xsd:anyURI",
+            "xsd:token",
+            "xsd:long",
+            "xsd:integer",
+            "xsd:unsignedInt",
+            "xsd:nonNegativeInteger",
+            "xsd:double",
+            "xsd:decimal",
+            "xsd:float",
+        ] {
+            param.r#type = t.to_string();
+            got.push(simple_type_rust_type(&container, t, &param, &Config::default()).0);
+        }
+        assert_eq!(
+            got,
+            vec![
+                "chrono::NaiveTime",
+                "url::Url",
+                "String",
+                "i64",
+                "i64",
+                "u32",
+                "u64",
+                "f64",
+                "f64",
+                "f32",
+            ]
+        );
     }
 
     #[test]
