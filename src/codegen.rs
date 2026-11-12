@@ -12,6 +12,8 @@ pub enum ParamContainer<'a> {
     Request(&'a Method, &'a Request),
     Response(&'a Method, &'a Response),
     Representation(&'a RepresentationDef),
+    /// A representation defined inline in the request of a method
+    RequestRepresentation(&'a Method, &'a RepresentationDef),
 }
 
 /// Convert wadl names (with dashes) to camel-case Rust names
@@ -737,6 +739,7 @@ fn apply_map_fn(map_fn: Option<&str>, ret: &str, nillable: bool) -> String {
 }
 
 fn serialize_representation_def(
+    method: &Method,
     def: &RepresentationDef,
     config: &Config,
     options_names: &HashMap<Options, String>,
@@ -811,7 +814,7 @@ fn serialize_representation_def(
         lines
     }
 
-    let container = ParamContainer::Representation(def);
+    let container = ParamContainer::RequestRepresentation(method, def);
 
     match def.media_type.as_ref().map(|s| s.to_string()).as_deref() {
         Some("multipart/form-data") => {
@@ -1119,18 +1122,29 @@ fn generate_method_representation(
         config.client_trait_name()
     );
 
-    let mut params = input.request.params.iter().collect::<Vec<_>>();
+    let request_container = ParamContainer::Request(input, &input.request);
+    let mut params = input
+        .request
+        .params
+        .iter()
+        .map(|p| (p, &request_container))
+        .collect::<Vec<_>>();
 
+    let representation_containers = input
+        .request
+        .representations
+        .iter()
+        .filter_map(|r| match r {
+            Representation::Definition(d) => {
+                Some((d, ParamContainer::RequestRepresentation(input, d)))
+            }
+            Representation::Reference(_) => None,
+        })
+        .collect::<Vec<_>>();
     params.extend(
-        input
-            .request
-            .representations
+        representation_containers
             .iter()
-            .filter_map(|r| match r {
-                Representation::Definition(d) => Some(&d.params),
-                Representation::Reference(_) => None,
-            })
-            .flatten(),
+            .flat_map(|(d, container)| d.params.iter().map(move |p| (p, container))),
     );
 
     // Generate documentation for the method
@@ -1167,13 +1181,12 @@ fn generate_method_representation(
         }
     }
 
-    let container = ParamContainer::Request(input, &input.request);
-    for param in &params {
+    for (param, container) in &params {
         if param.fixed.is_some() {
             continue;
         }
         let (param_type, _annotations) = param_rust_type(
-            &container,
+            container,
             param,
             config,
             resource_type_rust_type,
@@ -1228,7 +1241,7 @@ fn generate_method_representation(
             let param_name = snake_case_name(param_name);
             let param_name = escape_rust_reserved(param_name.as_str());
             let (param_type, _annotations) = param_rust_type(
-                &container,
+                &request_container,
                 param,
                 config,
                 resource_type_rust_type,
@@ -1294,7 +1307,7 @@ fn generate_method_representation(
             Representation::Definition(ref d) => {
                 lines.extend(indent(
                     2,
-                    serialize_representation_def(d, config, options_names).into_iter(),
+                    serialize_representation_def(input, d, config, options_names).into_iter(),
                 ));
             }
             Representation::Reference(_r) => {
@@ -1332,7 +1345,7 @@ fn generate_method_representation(
         ));
     }
 
-    for param in params.iter().filter(|p| p.style == ParamStyle::Header) {
+    for (param, _) in params.iter().filter(|(p, _)| p.style == ParamStyle::Header) {
         let value = if let Some(fixed) = param.fixed.as_ref() {
             format!("\"{}\"", fixed)
         } else {
@@ -2590,6 +2603,61 @@ This is another test"#;
         assert_eq!(
             apply_map_fn(Some("|y|y+1"), "x", true),
             "x.map(|y|y+1)".to_string()
+        );
+    }
+
+    #[test]
+    fn test_generate_method_inline_request_representation_container() {
+        let input = Method {
+            id: "create".to_string(),
+            name: "POST".to_string(),
+            docs: vec![],
+            request: Request {
+                docs: vec![],
+                params: vec![],
+                representations: vec![Representation::Definition(RepresentationDef {
+                    media_type: Some("application/x-www-form-urlencoded".parse().unwrap()),
+                    params: vec![Param {
+                        id: None,
+                        name: "tags".to_string(),
+                        r#type: "string".to_string(),
+                        style: ParamStyle::Query,
+                        doc: None,
+                        required: true,
+                        repeating: false,
+                        fixed: None,
+                        path: None,
+                        links: vec![],
+                        options: None,
+                    }],
+                    ..Default::default()
+                })],
+            },
+            responses: vec![],
+        };
+        // The signature and the serializer must both see the method, so that they agree on
+        // the type.
+        let config = Config {
+            override_type_name: Some(Box::new(|container, _, name, _| match container {
+                ParamContainer::RequestRepresentation(m, _)
+                    if m.id == "create" && name == "tags" =>
+                {
+                    Some("Vec<String>".to_string())
+                }
+                _ => None,
+            })),
+            ..Default::default()
+        };
+        let lines = generate_method(&input, "bar", &config, &HashMap::new());
+        let signature = lines.iter().find(|l| l.contains("pub fn create")).unwrap();
+        assert_eq!(
+            signature.trim(),
+            "pub fn create<'a>(&self, client: &'a dyn wadl::blocking::Client, tags: &[String]) -> std::result::Result<(), wadl::Error> {"
+        );
+        let append = lines.iter().find(|l| l.contains("append_pair")).unwrap();
+        assert_eq!(
+            append.trim(),
+            "for value in tags { serializer.append_pair(\"tags\", &value.to_string()); }"
         );
     }
 
