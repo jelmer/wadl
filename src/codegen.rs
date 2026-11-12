@@ -1631,7 +1631,7 @@ fn generate_resource(
     let mut lines = vec![];
 
     // Derive a name from the resource's id or path
-    let name = if let Some(id) = &input.id {
+    let base_name = if let Some(id) = &input.id {
         camel_case_name(id.as_str())
     } else if let Some(path) = &input.path {
         // Convert path to a valid Rust identifier
@@ -1645,6 +1645,10 @@ fn generate_resource(
     } else {
         return lines; // Skip resources without id or path
     };
+    let parent_id = input.id.as_deref().unwrap_or(&base_name);
+    // The suffix keeps resource structs apart from resource type, representation and
+    // options types derived from the same name.
+    let name = format!("{}Resource", base_name);
 
     for doc in &input.docs {
         lines.extend(generate_doc(doc, 0, config));
@@ -1686,7 +1690,6 @@ fn generate_resource(
                 }
             }
 
-            let parent_id = input.id.as_deref().unwrap_or(&name);
             lines.extend(generate_method(method, parent_id, config, options_names));
         }
 
@@ -3230,14 +3233,14 @@ This is another test"#;
         assert_eq!(
             lines,
             vec![
-                "pub struct TestPath (reqwest::Url);\n".to_string(),
+                "pub struct TestPathResource (reqwest::Url);\n".to_string(),
                 "\n".to_string(),
-                "impl TestPath {\n".to_string(),
+                "impl TestPathResource {\n".to_string(),
                 "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/test-path\").expect(\"Valid URL from WADL\"))\n    }\n".to_string(),
                 "\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
-                "impl wadl::Resource for TestPath {\n".to_string(),
+                "impl wadl::Resource for TestPathResource {\n".to_string(),
                 "    fn url(&self) -> &reqwest::Url {\n".to_string(),
                 "        &self.0\n".to_string(),
                 "    }\n".to_string(),
@@ -3266,14 +3269,14 @@ This is another test"#;
         assert_eq!(
             lines,
             vec![
-                "pub struct MyResource (reqwest::Url);\n".to_string(),
+                "pub struct MyResourceResource (reqwest::Url);\n".to_string(),
                 "\n".to_string(),
-                "impl MyResource {\n".to_string(),
+                "impl MyResourceResource {\n".to_string(),
                 "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/path\").expect(\"Valid URL from WADL\"))\n    }\n".to_string(),
                 "\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
-                "impl wadl::Resource for MyResource {\n".to_string(),
+                "impl wadl::Resource for MyResourceResource {\n".to_string(),
                 "    fn url(&self) -> &reqwest::Url {\n".to_string(),
                 "        &self.0\n".to_string(),
                 "    }\n".to_string(),
@@ -3343,14 +3346,14 @@ This is another test"#;
         assert_eq!(
             lines,
             vec![
-                "pub struct Users (reqwest::Url);\n".to_string(),
+                "pub struct UsersResource (reqwest::Url);\n".to_string(),
                 "\n".to_string(),
-                "impl Users {\n".to_string(),
+                "impl UsersResource {\n".to_string(),
                 "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://api.example.com/users\").expect(\"Valid URL from WADL\"))\n    }\n".to_string(),
                 "\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
-                "impl wadl::Resource for Users {\n".to_string(),
+                "impl wadl::Resource for UsersResource {\n".to_string(),
                 "    fn url(&self) -> &reqwest::Url {\n".to_string(),
                 "        &self.0\n".to_string(),
                 "    }\n".to_string(),
@@ -3388,27 +3391,27 @@ This is another test"#;
         assert_eq!(
             lines,
             vec![
-                "pub struct Parent (reqwest::Url);\n".to_string(),
+                "pub struct ParentResource (reqwest::Url);\n".to_string(),
                 "\n".to_string(),
-                "impl Parent {\n".to_string(),
+                "impl ParentResource {\n".to_string(),
                 "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/parent\").expect(\"Valid URL from WADL\"))\n    }\n".to_string(),
                 "\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
-                "impl wadl::Resource for Parent {\n".to_string(),
+                "impl wadl::Resource for ParentResource {\n".to_string(),
                 "    fn url(&self) -> &reqwest::Url {\n".to_string(),
                 "        &self.0\n".to_string(),
                 "    }\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
-                "pub struct Child (reqwest::Url);\n".to_string(),
+                "pub struct ChildResource (reqwest::Url);\n".to_string(),
                 "\n".to_string(),
-                "impl Child {\n".to_string(),
+                "impl ChildResource {\n".to_string(),
                 "    pub fn new() -> Self {\n        Self(reqwest::Url::parse(\"http://example.com/child\").expect(\"Valid URL from WADL\"))\n    }\n".to_string(),
                 "\n".to_string(),
                 "}\n".to_string(),
                 "\n".to_string(),
-                "impl wadl::Resource for Child {\n".to_string(),
+                "impl wadl::Resource for ChildResource {\n".to_string(),
                 "    fn url(&self) -> &reqwest::Url {\n".to_string(),
                 "        &self.0\n".to_string(),
                 "    }\n".to_string(),
