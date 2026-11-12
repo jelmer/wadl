@@ -880,6 +880,36 @@ fn serialize_representation_def(
     lines
 }
 
+/// Generate an expression that converts the `HeaderValue` in `var` to the type of `param`
+fn header_value_expr(
+    var: &str,
+    container: &ParamContainer,
+    param: &Param,
+    config: &Config,
+) -> String {
+    if param.repeating {
+        panic!("repeating header param {} is not supported", param.name);
+    }
+    if param.options.is_some() {
+        panic!("header param {} with options is not supported", param.name);
+    }
+    if let Some(link) = param.links.first() {
+        return match link.resource_type.as_ref() {
+            Some(rt) => format!(
+                "{}({}.to_str()?.parse()?)",
+                resource_type_rust_type(rt),
+                var
+            ),
+            None => format!("{}.to_str()?.parse::<url::Url>()?", var),
+        };
+    }
+    let (rust_type, _) = simple_type_rust_type(container, param.r#type.as_str(), param, config);
+    format!(
+        "{}.to_str()?.parse::<{}>().map_err(|e| wadl::Error::InvalidHeader(\"{}\".to_string(), Box::new(e)))?",
+        var, rust_type, param.name
+    )
+}
+
 /// Generate code for a WADL method (HTTP GET, POST, PUT, DELETE, etc.).
 ///
 /// This function generates Rust methods that correspond to HTTP operations defined
@@ -1370,37 +1400,32 @@ fn generate_method_representation(
     for response in input.responses.iter() {
         let mut return_types = vec![];
 
+        let container = ParamContainer::Response(input, response);
         for param in response.params.iter() {
-            match &param.style {
-                ParamStyle::Header => {
-                    if !param.links.is_empty() {
-                        let r = &param.links[0].resource_type.as_ref().unwrap();
-                        if !config.nillable(param) {
-                            return_types.push((
-                                format!(
-                                    "{}(resp.headers().get(\"{}\")?.to_str()?.parse()?)",
-                                    resource_type_rust_type(r),
-                                    param.name
-                                ),
-                                true,
-                            ));
-                        } else {
-                            return_types.push((format!(
-                                "resp.headers().get(\"{}\").map(|x| -> Result<_, wadl::Error> {{ Ok({}(x.to_str()?.parse()?)) }}).transpose()?",
-                                param.name,
-                                resource_type_rust_type(r),
-                            ), false));
-                        }
-                    } else {
-                        todo!(
-                            "header param type {:?} for {} in {:?}",
-                            param.r#type,
-                            param.name,
-                            input.id
-                        );
-                    }
-                }
-                t => todo!("param style {:?}", t),
+            if param.style != ParamStyle::Header {
+                panic!(
+                    "response param {} in {} has style {:?}; only header params are allowed on responses",
+                    param.name, input.id, param.style
+                );
+            }
+            let value = header_value_expr("x", &container, param, config);
+            let get = format!("resp.headers().get(\"{}\")", param.name);
+            if config.nillable(param) {
+                return_types.push((
+                    format!(
+                        "{}.map(|x| -> std::result::Result<_, wadl::Error> {{ Ok({}) }}).transpose()?",
+                        get, value
+                    ),
+                    false,
+                ));
+            } else {
+                return_types.push((
+                    format!(
+                        "{{ let x = {}.ok_or_else(|| wadl::Error::MissingHeader(\"{}\".to_string()))?; {} }}",
+                        get, param.name, value
+                    ),
+                    true,
+                ));
             }
         }
 
@@ -2834,7 +2859,7 @@ This is another test"#;
             "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string(),
             "                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string(),
             "                    Some(\"text/plain\") => {\n".to_string(),
-            "                             Ok((resp.text()?, resp.headers().get(\"Location\").map(|x| -> Result<_, wadl::Error> { Ok(Foo(x.to_str()?.parse()?)) }).transpose()?))\n".to_string(),
+            "                             Ok((resp.text()?, resp.headers().get(\"Location\").map(|x| -> std::result::Result<_, wadl::Error> { Ok(Foo(x.to_str()?.parse()?)) }).transpose()?))\n".to_string(),
             "                        }\n".to_string(),
             "                    _ => { Err(wadl::Error::UnhandledContentType(content_type)) }\n".to_string(),
             "                }\n".to_string(),
@@ -2844,6 +2869,63 @@ This is another test"#;
             "    }\n".to_string(),
             "\n".to_string(),
         ]);
+    }
+
+    #[test]
+    fn test_generate_method_header_response_params() {
+        let header = |name: &str, r#type: &str, required: bool| Param {
+            id: None,
+            name: name.to_string(),
+            r#type: r#type.to_string(),
+            style: ParamStyle::Header,
+            doc: None,
+            required,
+            repeating: false,
+            fixed: None,
+            path: None,
+            links: vec![],
+            options: None,
+        };
+        let mut location = header("Location", "string", true);
+        location.links = vec![Link {
+            relation: None,
+            reverse_relation: None,
+            resource_type: Some("http://example.com/#foo".parse().unwrap()),
+            doc: None,
+        }];
+        let input = Method {
+            id: "create".to_string(),
+            name: "POST".to_string(),
+            docs: vec![],
+            request: Request {
+                docs: vec![],
+                params: vec![],
+                representations: vec![],
+            },
+            responses: vec![Response {
+                status: None,
+                docs: vec![],
+                params: vec![
+                    location,
+                    header("ETag", "xsd:string", true),
+                    header("Retry-After", "xsd:int", false),
+                ],
+                representations: vec![],
+            }],
+        };
+        let lines = generate_method(&input, "bar", &Config::default(), &HashMap::new());
+        let ok_line = lines
+            .iter()
+            .find(|l| l.trim_start().starts_with("Ok("))
+            .unwrap();
+        assert_eq!(
+            ok_line.trim(),
+            concat!(
+                "Ok(({ let x = resp.headers().get(\"Location\").ok_or_else(|| wadl::Error::MissingHeader(\"Location\".to_string()))?; Foo(x.to_str()?.parse()?) }, ",
+                "{ let x = resp.headers().get(\"ETag\").ok_or_else(|| wadl::Error::MissingHeader(\"ETag\".to_string()))?; x.to_str()?.parse::<String>().map_err(|e| wadl::Error::InvalidHeader(\"ETag\".to_string(), Box::new(e)))? }, ",
+                "resp.headers().get(\"Retry-After\").map(|x| -> std::result::Result<_, wadl::Error> { Ok(x.to_str()?.parse::<i32>().map_err(|e| wadl::Error::InvalidHeader(\"Retry-After\".to_string(), Box::new(e)))?) }).transpose()?))"
+            )
+        );
     }
 
     #[test]
