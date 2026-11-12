@@ -331,7 +331,7 @@ fn simple_type_rust_type(
     config: &Config,
 ) -> (String, Vec<String>) {
     let tn = if let Some(override_name) = config.override_type_name.as_ref() {
-        override_name(container, type_name, param.name.as_str(), config)
+        override_name(container, type_name, param, config)
     } else {
         None
     };
@@ -366,7 +366,7 @@ fn param_rust_type(
             if let Some(override_type_name) = config
                 .override_type_name
                 .as_ref()
-                .and_then(|x| x(container, name.as_str(), param.name.as_str(), config))
+                .and_then(|x| x(container, name.as_str(), param, config))
             {
                 (override_type_name, vec![])
             } else {
@@ -1681,9 +1681,12 @@ pub struct Config {
     /// Whether to generate async code
     pub r#async: bool,
 
-    /// Based on the listed type and name of a parameter, determine the rust type
+    /// Override the rust type of a parameter
+    ///
+    /// Called with the container, the type name the parameter would otherwise get (the
+    /// declared type, or the resource type name for links) and the parameter itself.
     pub override_type_name:
-        Option<Box<dyn Fn(&ParamContainer, &str, &str, &Config) -> Option<String>>>,
+        Option<Box<dyn Fn(&ParamContainer, &str, &Param, &Config) -> Option<String>>>,
 
     /// Support renaming param accessor functions
     pub param_accessor_rename: Option<Box<dyn Fn(&str, &str) -> Option<String>>>,
@@ -2207,6 +2210,43 @@ This is another test"#;
             },
         );
         assert_eq!(param_type, "MyOptions");
+    }
+
+    #[test]
+    fn test_override_type_name_sees_param() {
+        let param = Param {
+            name: "data".to_string(),
+            r#type: "string".to_string(),
+            required: true,
+            repeating: false,
+            fixed: None,
+            doc: None,
+            options: None,
+            id: None,
+            style: ParamStyle::Plain,
+            path: Some("$['data']".to_string()),
+            links: vec![],
+        };
+        let rd = RepresentationDef {
+            id: Some("thing".to_string()),
+            ..Default::default()
+        };
+        let container = ParamContainer::Representation(&rd);
+        let config = Config {
+            override_type_name: Some(Box::new(|_, type_name, param, _| {
+                assert_eq!(type_name, "string");
+                (param.path.as_deref() == Some("$['data']")).then(|| "Vec<u8>".to_string())
+            })),
+            ..Default::default()
+        };
+        let (param_type, _) = param_rust_type(
+            &container,
+            &param,
+            &config,
+            resource_type_rust_type,
+            &HashMap::new(),
+        );
+        assert_eq!(param_type, "Vec<u8>");
     }
 
     #[test]
