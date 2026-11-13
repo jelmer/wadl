@@ -2714,9 +2714,9 @@ This is another test"#;
         // The signature and the serializer must both see the method, so that they agree on
         // the type.
         let config = Config {
-            override_type_name: Some(Box::new(|container, _, name, _| match container {
+            override_type_name: Some(Box::new(|container, _, param, _| match container {
                 ParamContainer::RequestRepresentation(m, _)
-                    if m.id == "create" && name == "tags" =>
+                    if m.id == "create" && param.name == "tags" =>
                 {
                     Some("Vec<String>".to_string())
                 }
