@@ -1513,7 +1513,18 @@ fn generate_method_representation(
                     }
                 };
                 if let Some(t) = t {
-                    let mut return_types = return_types.clone();
+                    // Reading the body consumes the response, so read the headers first.
+                    let mut return_types = return_types
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (value, nillable))| {
+                            lines.push(format!(
+                                "                        let header_{} = {};\n",
+                                i, value
+                            ));
+                            (format!("header_{}", i), *nillable)
+                        })
+                        .collect::<Vec<_>>();
                     return_types.insert(0, t);
                     lines.push(format!(
                         "                             {}\n",
@@ -2703,9 +2714,9 @@ This is another test"#;
         // The signature and the serializer must both see the method, so that they agree on
         // the type.
         let config = Config {
-            override_type_name: Some(Box::new(|container, _, name, _| match container {
+            override_type_name: Some(Box::new(|container, _, param, _| match container {
                 ParamContainer::RequestRepresentation(m, _)
-                    if m.id == "create" && name == "tags" =>
+                    if m.id == "create" && param.name == "tags" =>
                 {
                     Some("Vec<String>".to_string())
                 }
@@ -3029,7 +3040,8 @@ This is another test"#;
             "                let content_type: Option<mime::Mime> = resp.headers().get(reqwest::header::CONTENT_TYPE).map(|x| -> Result<_, wadl::Error> { Ok(x.to_str()?.parse()?) }).transpose()?;\n".to_string(),
             "                match content_type.as_ref().map(|x| x.essence_str()) {\n".to_string(),
             "                    Some(\"text/plain\") => {\n".to_string(),
-            "                             Ok((resp.text()?, resp.headers().get(\"Location\").map(|x| -> std::result::Result<_, wadl::Error> { Ok(Foo(x.to_str()?.parse()?)) }).transpose()?))\n".to_string(),
+            "                        let header_0 = resp.headers().get(\"Location\").map(|x| -> std::result::Result<_, wadl::Error> { Ok(Foo(x.to_str()?.parse()?)) }).transpose()?;\n".to_string(),
+            "                             Ok((resp.text()?, header_0))\n".to_string(),
             "                        }\n".to_string(),
             "                    _ => { Err(wadl::Error::UnhandledContentType(content_type)) }\n".to_string(),
             "                }\n".to_string(),
