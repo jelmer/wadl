@@ -1456,10 +1456,7 @@ fn generate_method_representation(
 
         // TODO(jelmer): match on media type
         if let Some(status) = response.status {
-            lines.push(format!(
-                "            s if s.as_u16() == reqwest::StatusCode::{} => {{\n",
-                status
-            ));
+            lines.push(format!("            s if s.as_u16() == {} => {{\n", status));
         } else {
             lines.push("            s if s.is_success() => {\n".to_string());
         }
@@ -3529,7 +3526,15 @@ This is another test"#;
         let result = generate_method_representation(&method, "parent", &config, &HashMap::new());
 
         // Should succeed without panicking - only success responses are counted
-        assert!(!result.is_empty());
+        let status_arms = result
+            .iter()
+            .filter(|l| l.contains("s.as_u16()"))
+            .map(|l| l.trim())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            status_arms,
+            vec!["s if s.as_u16() == 200 => {", "s if s.as_u16() == 400 => {"]
+        );
     }
 
     #[test]
