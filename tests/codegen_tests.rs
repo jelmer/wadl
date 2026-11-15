@@ -59,3 +59,32 @@ fn test_config_client_trait_name() {
     };
     assert_eq!(async_config.client_trait_name(), "wadl::r#async::Client");
 }
+
+#[cfg(feature = "codegen")]
+#[test]
+fn test_generate_resource_name_clashes_with_resource_type() {
+    let app = wadl::parse_string(
+        r##"<?xml version="1.0"?>
+<application xmlns="http://wadl.dev.java.net/2009/02">
+  <resources base="https://example.com/">
+    <resource path="things" type="#things"/>
+  </resources>
+  <resource_type id="things">
+    <method name="GET" id="list"><request/><response/></method>
+  </resource_type>
+</application>"##,
+    )
+    .unwrap();
+    let code = generate(&app, &Config::default());
+    let structs = code
+        .lines()
+        .filter(|l| l.contains("struct "))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        structs,
+        vec![
+            "pub struct Things (reqwest::Url);",
+            "pub struct ThingsResource (reqwest::Url);"
+        ]
+    );
+}
