@@ -7,6 +7,42 @@ use url::Url;
 /// Identifier for a resource, method, parameter, etc.
 pub type Id = String;
 
+/// Namespace of the XML Schema built-in types.
+pub const XSD_NS: &str = "http://www.w3.org/2001/XMLSchema";
+
+/// The type of a parameter, with its namespace prefix resolved.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypeName {
+    /// Namespace URI, or `None` if the type name had no prefix.
+    pub namespace: Option<String>,
+
+    /// The local part of the name.
+    ///
+    /// This is taken verbatim, so it may contain characters that are not valid in an XML
+    /// name, such as generic arguments.
+    pub name: String,
+}
+
+impl TypeName {
+    /// Create a type name in the XML Schema namespace.
+    pub fn xsd(name: &str) -> Self {
+        Self {
+            namespace: Some(XSD_NS.to_string()),
+            name: name.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for TypeName {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.namespace.as_deref() {
+            None => write!(f, "{}", self.name),
+            Some(XSD_NS) => write!(f, "xsd:{}", self.name),
+            Some(ns) => write!(f, "{{{}}}{}", ns, self.name),
+        }
+    }
+}
+
 /// Parameter style
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ParamStyle {
@@ -82,13 +118,13 @@ impl Application {
     }
 
     /// Iterate over all types defined in this application.
-    pub fn iter_referenced_types(&self) -> impl Iterator<Item = String> + '_ {
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = TypeName> + '_ {
         self.iter_resources()
-            .flat_map(|(_u, r)| r.iter_referenced_types().map(|s| s.to_string()))
+            .flat_map(|(_u, r)| r.iter_referenced_types().cloned())
             .chain(
                 self.resource_types
                     .iter()
-                    .flat_map(|rt| rt.iter_referenced_types().map(|s| s.to_string())),
+                    .flat_map(|rt| rt.iter_referenced_types().cloned()),
             )
     }
 
@@ -296,8 +332,8 @@ impl Resource {
     }
 
     /// Iterate over all types referenced by this resource.
-    pub fn iter_referenced_types(&self) -> impl Iterator<Item = &str> + '_ {
-        self.iter_all_params().map(|p| p.r#type.as_str())
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = &TypeName> + '_ {
+        self.iter_all_params().filter_map(|p| p.r#type.as_ref())
     }
 }
 
@@ -409,8 +445,10 @@ pub struct Param {
     /// The name of the parameter.
     pub name: String,
 
-    /// The type of the parameter. This will be a XSD type, e.g. `xs:string`.
-    pub r#type: String,
+    /// The declared type of the parameter, usually an XSD type such as `xsd:string`.
+    ///
+    /// `None` if no type was declared, in which case WADL specifies `xsd:string`.
+    pub r#type: Option<TypeName>,
 
     /// Path of the parameter.
     pub path: Option<String>,
@@ -665,7 +703,7 @@ impl ResourceType {
     }
 
     /// Returns an iterator over all types referenced by this resource type.
-    pub fn iter_referenced_types(&self) -> impl Iterator<Item = &str> + '_ {
-        self.iter_all_params().map(|p| p.r#type.as_str())
+    pub fn iter_referenced_types(&self) -> impl Iterator<Item = &TypeName> + '_ {
+        self.iter_all_params().filter_map(|p| p.r#type.as_ref())
     }
 }
