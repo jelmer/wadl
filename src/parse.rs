@@ -22,6 +22,9 @@ pub enum Error {
 
     /// An error occurred while parsing a MIME type.
     Mime(mime::FromStrError),
+
+    /// A type name used a namespace prefix that was not declared.
+    UndeclaredPrefix(String),
 }
 
 impl From<std::io::Error> for Error {
@@ -55,6 +58,9 @@ impl std::fmt::Display for Error {
             Error::Xml(e) => write!(f, "XML error: {}", e),
             Error::Url(e) => write!(f, "URL error: {}", e),
             Error::Mime(e) => write!(f, "MIME error: {}", e),
+            Error::UndeclaredPrefix(name) => {
+                write!(f, "Undeclared namespace prefix in type: {}", name)
+            }
         }
     }
 }
@@ -106,8 +112,32 @@ fn test_parse_options() {
     );
 }
 
+/// Resolve the namespace prefix of a type name, using the namespaces in scope for `element`.
+///
+/// A name without a prefix gets no namespace, rather than the default namespace.
+fn parse_type_name(element: &Element, value: &str) -> Result<TypeName, Error> {
+    let Some((prefix, name)) = value.split_once(':') else {
+        return Ok(TypeName {
+            namespace: None,
+            name: value.to_string(),
+        });
+    };
+    let namespace = element
+        .namespaces
+        .as_ref()
+        .and_then(|ns| ns.get(prefix))
+        .ok_or_else(|| Error::UndeclaredPrefix(value.to_string()))?;
+    Ok(TypeName {
+        namespace: Some(namespace.to_string()),
+        name: name.to_string(),
+    })
+}
+
 /// Parse a `param` element.
-pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -> Vec<Param> {
+pub fn parse_params(
+    resource_element: &Element,
+    allowed_styles: &[ParamStyle],
+) -> Result<Vec<Param>, Error> {
     let mut params = Vec::new();
 
     for param_node in &resource_element.children {
@@ -164,9 +194,8 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
                 let r#type = element
                     .attributes
                     .get("type")
-                    .cloned()
-                    // TODO: find prefix for XMLSchema and use $prefix:string
-                    .unwrap_or_else(|| "string".to_string());
+                    .map(|t| parse_type_name(element, t))
+                    .transpose()?;
                 let path = element.attributes.get("path").cloned();
                 let required = element
                     .attributes
@@ -212,7 +241,7 @@ pub fn parse_params(resource_element: &Element, allowed_styles: &[ParamStyle]) -
         }
     }
 
-    params
+    Ok(params)
 }
 
 fn parse_resource(element: &Element) -> Result<Resource, Error> {
@@ -238,7 +267,7 @@ fn parse_resource(element: &Element) -> Result<Resource, Error> {
 
     let docs = parse_docs(element);
 
-    let methods = parse_methods(element);
+    let methods = parse_methods(element)?;
 
     let subresources = parse_resources(element)?;
 
@@ -250,7 +279,7 @@ fn parse_resource(element: &Element) -> Result<Resource, Error> {
             ParamStyle::Header,
             ParamStyle::Template,
         ],
-    );
+    )?;
 
     Ok(Resource {
         id,
@@ -474,14 +503,14 @@ fn parse_resource_type(resource_type_element: &Element) -> Result<ResourceType, 
 
     let docs = parse_docs(resource_type_element);
 
-    let methods = parse_methods(resource_type_element);
+    let methods = parse_methods(resource_type_element)?;
 
     let subresources = parse_resources(resource_type_element)?;
 
     let params = parse_params(
         resource_type_element,
         &[ParamStyle::Header, ParamStyle::Query],
-    );
+    )?;
 
     Ok(ResourceType {
         id,
@@ -532,7 +561,7 @@ pub fn parse<R: Read>(reader: R) -> Result<Application, Error> {
         }
     }
 
-    let representations = parse_representations(&root);
+    let representations = parse_representations(&root)?;
 
     Ok(Application {
         resources,
@@ -565,7 +594,7 @@ pub fn parse_bytes(bytes: &[u8]) -> Result<Application, Error> {
     parse(bytes)
 }
 
-fn parse_representations(request_element: &Element) -> Vec<Representation> {
+fn parse_representations(request_element: &Element) -> Result<Vec<Representation>, Error> {
     let mut representations = Vec::new();
 
     for representation_node in &request_element.children {
@@ -590,7 +619,7 @@ fn parse_representations(request_element: &Element) -> Vec<Representation> {
                     let docs = parse_docs(element);
                     let id = element.attributes.get("id").cloned();
                     let profile = element.attributes.get("profile").cloned();
-                    let params = parse_params(element, &[ParamStyle::Plain, ParamStyle::Query]);
+                    let params = parse_params(element, &[ParamStyle::Plain, ParamStyle::Query])?;
                     representations.push(Representation::Definition(RepresentationDef {
                         id,
                         media_type,
@@ -604,12 +633,12 @@ fn parse_representations(request_element: &Element) -> Vec<Representation> {
         }
     }
 
-    representations
+    Ok(representations)
 }
 
 #[test]
 fn test_parse_representations() {
-    let xml = r#"<response xmlns:xml="http://www.w3.org/XML/1998/namespace">
+    let xml = r#"<response xmlns:xml="http://www.w3.org/XML/1998/namespace" xmlns:xs="http://www.w3.org/2001/XMLSchema">
         <representation id="foo" mediaType="application/json">
             <doc xml:lang="en">Foo</doc>
             <param name="foo" style="plain" type="xs:string" required="true" default="bar" fixed="baz">
@@ -626,7 +655,7 @@ fn test_parse_representations() {
 
     let root = Element::parse(xml.as_bytes()).unwrap();
 
-    let representations = parse_representations(&root);
+    let representations = parse_representations(&root).unwrap();
 
     assert_eq!(representations.len(), 3);
 
@@ -653,10 +682,10 @@ fn test_parse_representations() {
     }
 }
 
-fn parse_response(response_element: &Element) -> Response {
+fn parse_response(response_element: &Element) -> Result<Response, Error> {
     let docs = parse_docs(response_element);
 
-    let representations = parse_representations(response_element);
+    let representations = parse_representations(response_element)?;
 
     let status = response_element
         .attributes
@@ -668,20 +697,20 @@ fn parse_response(response_element: &Element) -> Response {
                 .expect("should parse status code from string")
         });
 
-    let params = parse_params(response_element, &[ParamStyle::Header]);
+    let params = parse_params(response_element, &[ParamStyle::Header])?;
 
-    Response {
+    Ok(Response {
         docs,
         params,
         status,
         representations,
-    }
+    })
 }
 
 #[test]
 fn test_parses_response() {
     let xml = r#"
-        <response status="200">
+        <response status="200" xmlns:xs="http://www.w3.org/2001/XMLSchema">
             <param name="foo" style="plain" type="xs:string" required="true" default="bar" fixed="baz">
                 <doc xml:lang="en">Foo</doc>
             </param>
@@ -701,30 +730,30 @@ fn test_parses_response() {
 
     let element = Element::parse(xml.as_bytes()).unwrap();
 
-    let response = parse_response(&element);
+    let response = parse_response(&element).unwrap();
 
     assert_eq!(response.status, Some(200));
     assert_eq!(response.representations.len(), 5);
 }
 
-fn parse_request(request_element: &Element) -> Request {
+fn parse_request(request_element: &Element) -> Result<Request, Error> {
     let docs = parse_docs(request_element);
 
-    let params = parse_params(request_element, &[ParamStyle::Header, ParamStyle::Query]);
+    let params = parse_params(request_element, &[ParamStyle::Header, ParamStyle::Query])?;
 
-    let representations = parse_representations(request_element);
+    let representations = parse_representations(request_element)?;
 
-    Request {
+    Ok(Request {
         docs,
         params,
         representations,
-    }
+    })
 }
 
 #[test]
 fn test_parse_request() {
     let xml = r#"
-        <request>
+        <request xmlns:xs="http://www.w3.org/2001/XMLSchema">
             <param name="foo" style="plain" type="xs:string" required="true" default="bar" fixed="baz">
                 <doc xml:lang="en">Foo</doc>
             </param>
@@ -743,14 +772,14 @@ fn test_parse_request() {
 
     let element = Element::parse(xml.as_bytes()).unwrap();
 
-    let request = parse_request(&element);
+    let request = parse_request(&element).unwrap();
 
     assert_eq!(request.docs.len(), 0);
     assert_eq!(request.params.len(), 3);
     assert_eq!(request.representations.len(), 2);
 }
 
-fn parse_method(method_element: &Element) -> Method {
+fn parse_method(method_element: &Element) -> Result<Method, Error> {
     let id = method_element
         .attributes
         .get("id")
@@ -768,7 +797,10 @@ fn parse_method(method_element: &Element) -> Method {
         .find(|node| node.as_element().is_some_and(|e| e.name == "request"))
         .and_then(|node| node.as_element());
 
-    let request = request_element.map(parse_request).unwrap_or_default();
+    let request = request_element
+        .map(parse_request)
+        .transpose()?
+        .unwrap_or_default();
 
     let responses = method_element
         .children
@@ -776,17 +808,17 @@ fn parse_method(method_element: &Element) -> Method {
         .filter(|node| node.as_element().is_some_and(|e| e.name == "response"))
         .map(|node| node.as_element().unwrap())
         .map(parse_response)
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     let docs = parse_docs(method_element);
 
-    Method {
+    Ok(Method {
         id,
         name,
         docs,
         request,
         responses,
-    }
+    })
 }
 
 #[test]
@@ -816,7 +848,7 @@ fn test_parse_method() {
         </method>
     "#;
 
-    let method = parse_method(&Element::parse(xml.as_bytes()).unwrap());
+    let method = parse_method(&Element::parse(xml.as_bytes()).unwrap()).unwrap();
 
     assert_eq!(method.id, "");
     assert_eq!(method.name, "GET");
@@ -863,18 +895,18 @@ fn test_parse_method() {
     assert_eq!(method.responses[0].params.len(), 2);
 }
 
-fn parse_methods(resource_element: &Element) -> Vec<Method> {
+fn parse_methods(resource_element: &Element) -> Result<Vec<Method>, Error> {
     let mut methods = Vec::new();
 
     for method_node in &resource_element.children {
         if let Some(element) = method_node.as_element() {
             if element.name == "method" {
-                methods.push(parse_method(element));
+                methods.push(parse_method(element)?);
             }
         }
     }
 
-    methods
+    Ok(methods)
 }
 
 #[test]
@@ -906,7 +938,7 @@ fn test_parse_methods() {
         </methods>
     "#;
 
-    let methods = parse_methods(&Element::parse(xml.as_bytes()).unwrap());
+    let methods = parse_methods(&Element::parse(xml.as_bytes()).unwrap()).unwrap();
 
     assert_eq!(methods.len(), 1);
     assert_eq!(methods[0].id, "");

@@ -57,7 +57,7 @@ fn test_minimal_wadl() {
 #[test]
 fn test_wadl_with_params() {
     let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
-    <application xmlns="http://wadl.dev.java.net/2009/02">
+    <application xmlns="http://wadl.dev.java.net/2009/02" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
         <resources base="http://example.com/api/">
             <resource path="users/{id}">
                 <param name="id" style="template" type="xsd:string" required="true"/>
@@ -82,4 +82,55 @@ fn test_wadl_with_params() {
     let method = &resource.methods[0];
     assert_eq!(method.request.params.len(), 1);
     assert_eq!(method.request.params[0].name, "format");
+}
+
+#[test]
+fn test_param_type_namespaces() {
+    use wadl::ast::TypeName;
+    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+    <application xmlns="http://wadl.dev.java.net/2009/02" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <representation id="thing" mediaType="application/json">
+            <param name="a" style="plain" type="xs:int"/>
+            <param name="b" style="plain" type="binary"/>
+            <param name="c" style="plain" xmlns:t="urn:example:types" type="t:Wrapper&lt;i32&gt;"/>
+            <param name="d" style="plain"/>
+        </representation>
+    </application>"#;
+
+    let app = parse_string(xml).unwrap();
+    let types = app.representations[0]
+        .params
+        .iter()
+        .map(|p| p.r#type.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        types,
+        vec![
+            Some(TypeName::xsd("int")),
+            Some(TypeName {
+                namespace: None,
+                name: "binary".to_string()
+            }),
+            Some(TypeName {
+                namespace: Some("urn:example:types".to_string()),
+                name: "Wrapper<i32>".to_string()
+            }),
+            None,
+        ]
+    );
+}
+
+#[test]
+fn test_param_type_undeclared_prefix() {
+    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+    <application xmlns="http://wadl.dev.java.net/2009/02">
+        <representation id="thing" mediaType="application/json">
+            <param name="a" style="plain" type="xs:int"/>
+        </representation>
+    </application>"#;
+
+    match parse_string(xml) {
+        Err(ParseError::UndeclaredPrefix(name)) => assert_eq!(name, "xs:int"),
+        other => panic!("unexpected result: {:?}", other),
+    }
 }

@@ -328,21 +328,42 @@ fn resource_type_rust_type(r: &ResourceTypeRef) -> String {
 
 fn simple_type_rust_type(
     container: &ParamContainer,
-    type_name: &str,
     param: &Param,
     config: &Config,
 ) -> (String, Vec<String>) {
-    let tn = if let Some(override_name) = config.override_type_name.as_ref() {
-        override_name(container, type_name, param, config)
-    } else {
-        None
+    let default_type = TypeName {
+        namespace: None,
+        name: "string".to_string(),
     };
+    let type_name = param.r#type.as_ref().unwrap_or(&default_type);
 
-    if let Some(tn) = tn {
+    // A type in a namespace mapped to a Rust module was picked explicitly, so it wins over
+    // override_type_name.
+    if let Some(module) = type_name
+        .namespace
+        .as_ref()
+        .and_then(|ns| config.type_namespaces.get(ns))
+    {
+        return (format!("{}::{}", module, type_name.name), vec![]);
+    }
+
+    if let Some(tn) = config
+        .override_type_name
+        .as_ref()
+        .and_then(|override_name| override_name(container, &type_name.to_string(), param, config))
+    {
         return (tn, vec![]);
     }
 
-    let rust_type = match type_name.split_once(':').map_or(type_name, |(_, n)| n) {
+    if type_name
+        .namespace
+        .as_deref()
+        .is_some_and(|ns| ns != XSD_NS)
+    {
+        panic!("Unknown type {} for param {}", type_name, param.name);
+    }
+
+    let rust_type = match type_name.name.as_str() {
         "date" => "chrono::NaiveDate",
         "dateTime" => "chrono::DateTime<chrono::Utc>",
         "time" => "chrono::NaiveTime",
@@ -395,7 +416,7 @@ fn param_rust_type(
         });
         (options_name.clone(), vec![])
     } else {
-        simple_type_rust_type(container, param.r#type.as_str(), param, config)
+        simple_type_rust_type(container, param, config)
     };
 
     if param.repeating {
@@ -523,7 +544,9 @@ fn generate_representation_struct_json(
         // We provide accessors for resource types
         let is_pub = true;
 
-        lines.push(format!("    // was: {}\n", param.r#type));
+        if let Some(r#type) = param.r#type.as_ref() {
+            lines.push(format!("    // was: {}\n", r#type));
+        }
         if let Some(doc) = param.doc.as_ref() {
             lines.extend(generate_doc(doc, 1, config));
         }
@@ -918,7 +941,7 @@ fn header_value_expr(
             None => format!("{}.to_str()?.parse::<url::Url>()?", var),
         };
     }
-    let (rust_type, _) = simple_type_rust_type(container, param.r#type.as_str(), param, config);
+    let (rust_type, _) = simple_type_rust_type(container, param, config);
     format!(
         "{}.to_str()?.parse::<{}>().map_err(|e| wadl::Error::InvalidHeader(\"{}\".to_string(), Box::new(e)))?",
         var, rust_type, param.name
@@ -1742,10 +1765,20 @@ pub struct Config {
     /// Whether to generate async code
     pub r#async: bool,
 
+    /// Map XML namespace URIs to Rust module paths
+    ///
+    /// A param whose type is in one of these namespaces gets the type with the same name in
+    /// the module, e.g. `crate::types::Foo` for `type="t:Foo"` if the `t` prefix is bound
+    /// to a namespace that maps to `crate::types`. These take precedence over
+    /// `override_type_name`.
+    pub type_namespaces: HashMap<String, String>,
+
     /// Override the rust type of a parameter
     ///
-    /// Called with the container, the type name the parameter would otherwise get (the
-    /// declared type, or the resource type name for links) and the parameter itself.
+    /// Called with the container, the type name the parameter would otherwise get and the
+    /// parameter itself. The type name is `xsd:<name>` for XML Schema types,
+    /// `{namespace}name` for other namespaced types, `string` for params without a declared
+    /// type and the resource type name for links.
     pub override_type_name:
         Option<Box<dyn Fn(&ParamContainer, &str, &Param, &Config) -> Option<String>>>,
 
@@ -2159,7 +2192,7 @@ This is another test"#;
     fn test_simple_type_rust_type_xsd() {
         let mut param = Param {
             name: "p".to_string(),
-            r#type: String::new(),
+            r#type: None,
             required: true,
             repeating: false,
             fixed: None,
@@ -2174,19 +2207,19 @@ This is another test"#;
         let container = ParamContainer::Representation(&rd);
         let mut got = vec![];
         for t in [
-            "xsd:time",
-            "xsd:anyURI",
-            "xsd:token",
-            "xsd:long",
-            "xsd:integer",
-            "xsd:unsignedInt",
-            "xsd:nonNegativeInteger",
-            "xsd:double",
-            "xsd:decimal",
-            "xsd:float",
+            "time",
+            "anyURI",
+            "token",
+            "long",
+            "integer",
+            "unsignedInt",
+            "nonNegativeInteger",
+            "double",
+            "decimal",
+            "float",
         ] {
-            param.r#type = t.to_string();
-            got.push(simple_type_rust_type(&container, t, &param, &Config::default()).0);
+            param.r#type = Some(TypeName::xsd(t));
+            got.push(simple_type_rust_type(&container, &param, &Config::default()).0);
         }
         assert_eq!(
             got,
@@ -2206,12 +2239,80 @@ This is another test"#;
     }
 
     #[test]
+    fn test_simple_type_rust_type_namespaces() {
+        let mut param = Param {
+            name: "p".to_string(),
+            r#type: Some(TypeName {
+                namespace: Some("urn:example:types".to_string()),
+                name: "Wrapper<i32>".to_string(),
+            }),
+            required: true,
+            repeating: false,
+            fixed: None,
+            doc: None,
+            options: None,
+            id: None,
+            style: ParamStyle::Plain,
+            path: None,
+            links: vec![],
+        };
+        let rd = RepresentationDef::default();
+        let container = ParamContainer::Representation(&rd);
+        let config = Config {
+            type_namespaces: maplit::hashmap! {
+                "urn:example:types".to_string() => "crate::types".to_string(),
+            },
+            override_type_name: Some(Box::new(|_, type_name, _, _| {
+                Some(format!("Overridden<{}>", type_name))
+            })),
+            ..Default::default()
+        };
+        let resolve = |param: &Param| simple_type_rust_type(&container, param, &config).0;
+
+        // Mapped namespaces take precedence over override_type_name.
+        assert_eq!(resolve(&param), "crate::types::Wrapper<i32>");
+
+        param.r#type = Some(TypeName::xsd("int"));
+        assert_eq!(resolve(&param), "Overridden<xsd:int>");
+
+        param.r#type = None;
+        assert_eq!(resolve(&param), "Overridden<string>");
+    }
+
+    #[test]
+    #[should_panic(expected = "Unknown type {urn:other}Foo for param p")]
+    fn test_simple_type_rust_type_unmapped_namespace() {
+        let param = Param {
+            name: "p".to_string(),
+            r#type: Some(TypeName {
+                namespace: Some("urn:other".to_string()),
+                name: "Foo".to_string(),
+            }),
+            required: true,
+            repeating: false,
+            fixed: None,
+            doc: None,
+            options: None,
+            id: None,
+            style: ParamStyle::Plain,
+            path: None,
+            links: vec![],
+        };
+        let rd = RepresentationDef::default();
+        simple_type_rust_type(
+            &ParamContainer::Representation(&rd),
+            &param,
+            &Config::default(),
+        );
+    }
+
+    #[test]
     fn test_param_rust_type() {
         use std::str::FromStr;
         let rt = ResourceTypeRef::from_str("https://api.launchpad.net/1.0/#person").unwrap();
         let mut param = Param {
             name: "person".to_string(),
-            r#type: "string".to_string(),
+            r#type: None,
             required: true,
             repeating: false,
             fixed: None,
@@ -2278,7 +2379,7 @@ This is another test"#;
         assert_eq!(param_type, "Vec<Person>");
 
         param.repeating = false;
-        param.r#type = "string".to_string();
+        param.r#type = None;
         param.links = vec![];
         let (param_type, _) = param_rust_type(
             &container,
@@ -2289,7 +2390,10 @@ This is another test"#;
         );
         assert_eq!(param_type, "String");
 
-        param.r#type = "binary".to_string();
+        param.r#type = Some(TypeName {
+            namespace: None,
+            name: "binary".to_string(),
+        });
         let (param_type, _) = param_rust_type(
             &container,
             &param,
@@ -2299,7 +2403,7 @@ This is another test"#;
         );
         assert_eq!(param_type, "Vec<u8>");
 
-        param.r#type = "xsd:date".to_string();
+        param.r#type = Some(TypeName::xsd("date"));
         let (param_type, _) = param_rust_type(
             &container,
             &param,
@@ -2309,7 +2413,7 @@ This is another test"#;
         );
         assert_eq!(param_type, "chrono::NaiveDate");
 
-        param.r#type = "string".to_string();
+        param.r#type = None;
         param.options = Some(Options::from(vec!["one".to_string(), "two".to_string()]));
         let (param_type, _) = param_rust_type(
             &container,
@@ -2327,7 +2431,7 @@ This is another test"#;
     fn test_override_type_name_sees_param() {
         let param = Param {
             name: "data".to_string(),
-            r#type: "string".to_string(),
+            r#type: None,
             required: true,
             repeating: false,
             fixed: None,
@@ -2410,7 +2514,7 @@ This is another test"#;
             params: vec![
                 Param {
                     name: "name".to_string(),
-                    r#type: "string".to_string(),
+                    r#type: None,
                     style: ParamStyle::Plain,
                     required: true,
                     doc: Some(Doc::new("The name of the person".to_string())),
@@ -2423,7 +2527,7 @@ This is another test"#;
                 },
                 Param {
                     name: "age".to_string(),
-                    r#type: "xs:int".to_string(),
+                    r#type: Some(TypeName::xsd("int")),
                     required: true,
                     doc: Some(Doc::new("The age of the person".to_string())),
                     style: ParamStyle::Query,
@@ -2448,11 +2552,10 @@ This is another test"#;
                 "#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n"
                     .to_string(),
                 "pub struct Person {\n".to_string(),
-                "    // was: string\n".to_string(),
                 "    /// The name of the person\n".to_string(),
                 "    pub name: String,\n".to_string(),
                 "\n".to_string(),
-                "    // was: xs:int\n".to_string(),
+                "    // was: xsd:int\n".to_string(),
                 "    /// The age of the person\n".to_string(),
                 "    pub age: i32,\n".to_string(),
                 "\n".to_string(),
@@ -2484,7 +2587,7 @@ This is another test"#;
         // text/plain with plain params should be supported
         d.params = vec![Param {
             name: "return".to_string(),
-            r#type: "string".to_string(),
+            r#type: None,
             style: ParamStyle::Plain,
             required: false,
             repeating: false,
@@ -2504,7 +2607,7 @@ This is another test"#;
             params: vec![Param {
                 id: Some("foo".to_string()),
                 name: "foo".to_string(),
-                r#type: "string".to_string(),
+                r#type: None,
                 style: ParamStyle::Header,
                 doc: None,
                 required: true,
@@ -2534,7 +2637,7 @@ This is another test"#;
             Param {
                 id: Some("foo".to_string()),
                 name: "foo".to_string(),
-                r#type: "string".to_string(),
+                r#type: None,
                 style: ParamStyle::Header,
                 doc: None,
                 required: true,
@@ -2547,7 +2650,7 @@ This is another test"#;
             Param {
                 id: Some("bar".to_string()),
                 name: "bar".to_string(),
-                r#type: "string".to_string(),
+                r#type: None,
                 style: ParamStyle::Header,
                 doc: None,
                 required: true,
@@ -2566,7 +2669,7 @@ This is another test"#;
         input.params = vec![Param {
             id: Some("foo".to_string()),
             name: "foo".to_string(),
-            r#type: "string".to_string(),
+            r#type: None,
             style: ParamStyle::Header,
             doc: None,
             required: true,
@@ -2589,7 +2692,7 @@ This is another test"#;
         input.params = vec![Param {
             id: Some("foo".to_string()),
             name: "foo".to_string(),
-            r#type: "string".to_string(),
+            r#type: None,
             style: ParamStyle::Header,
             doc: None,
             required: true,
@@ -2612,7 +2715,7 @@ This is another test"#;
         input.params = vec![Param {
             id: None,
             name: "foo".to_string(),
-            r#type: "string".to_string(),
+            r#type: None,
             style: ParamStyle::Header,
             doc: None,
             required: true,
@@ -2696,7 +2799,7 @@ This is another test"#;
                     params: vec![Param {
                         id: None,
                         name: "tags".to_string(),
-                        r#type: "string".to_string(),
+                        r#type: None,
                         style: ParamStyle::Query,
                         doc: None,
                         required: true,
@@ -2783,7 +2886,7 @@ This is another test"#;
                 docs: vec![],
                 params: vec![Param {
                     name: "return".to_string(),
-                    r#type: "xsd:string".to_string(),
+                    r#type: Some(TypeName::xsd("string")),
                     style: ParamStyle::Plain,
                     required: false,
                     repeating: false,
@@ -2826,7 +2929,7 @@ This is another test"#;
                 Param {
                     id: Some("location".to_string()),
                     name: "Location".to_string(),
-                    r#type: "string".to_string(),
+                    r#type: None,
                     style: ParamStyle::Header,
                     doc: None,
                     required: false,
@@ -2839,7 +2942,7 @@ This is another test"#;
                 Param {
                     id: Some("etag".to_string()),
                     name: "ETag".to_string(),
-                    r#type: "string".to_string(),
+                    r#type: None,
                     style: ParamStyle::Header,
                     doc: None,
                     required: false,
@@ -2858,7 +2961,7 @@ This is another test"#;
                 docs: vec![],
                 params: vec![Param {
                     name: "return".to_string(),
-                    r#type: "xsd:string".to_string(),
+                    r#type: Some(TypeName::xsd("string")),
                     style: ParamStyle::Plain,
                     required: false,
                     repeating: false,
@@ -2917,7 +3020,7 @@ This is another test"#;
                     docs: vec![],
                     params: vec![Param {
                         name: "return".to_string(),
-                        r#type: "xsd:string".to_string(),
+                        r#type: Some(TypeName::xsd("string")),
                         style: ParamStyle::Plain,
                         required: false,
                         repeating: false,
@@ -2981,7 +3084,7 @@ This is another test"#;
                 params: vec![Param {
                     id: Some("location".to_string()),
                     name: "Location".to_string(),
-                    r#type: "string".to_string(),
+                    r#type: None,
                     style: ParamStyle::Header,
                     doc: None,
                     required: false,
@@ -3004,7 +3107,7 @@ This is another test"#;
                     docs: vec![],
                     params: vec![Param {
                         name: "return".to_string(),
-                        r#type: "xsd:string".to_string(),
+                        r#type: Some(TypeName::xsd("string")),
                         style: ParamStyle::Plain,
                         required: false,
                         repeating: false,
@@ -3055,10 +3158,10 @@ This is another test"#;
 
     #[test]
     fn test_generate_method_header_response_params() {
-        let header = |name: &str, r#type: &str, required: bool| Param {
+        let header = |name: &str, r#type: Option<TypeName>, required: bool| Param {
             id: None,
             name: name.to_string(),
-            r#type: r#type.to_string(),
+            r#type,
             style: ParamStyle::Header,
             doc: None,
             required,
@@ -3068,7 +3171,7 @@ This is another test"#;
             links: vec![],
             options: None,
         };
-        let mut location = header("Location", "string", true);
+        let mut location = header("Location", None, true);
         location.links = vec![Link {
             relation: None,
             reverse_relation: None,
@@ -3089,8 +3192,8 @@ This is another test"#;
                 docs: vec![],
                 params: vec![
                     location,
-                    header("ETag", "xsd:string", true),
-                    header("Retry-After", "xsd:int", false),
+                    header("ETag", Some(TypeName::xsd("string")), true),
+                    header("Retry-After", Some(TypeName::xsd("int")), false),
                 ],
                 representations: vec![],
             }],
@@ -3133,7 +3236,7 @@ This is another test"#;
                     docs: vec![],
                     params: vec![Param {
                         name: "return".to_string(),
-                        r#type: "xsd:string".to_string(),
+                        r#type: Some(TypeName::xsd("string")),
                         style: ParamStyle::Plain,
                         required: false,
                         repeating: false,
